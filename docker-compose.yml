@@ -1,0 +1,38 @@
+# Local development stack. Nothing here is required for the cloud providers — it exists so the
+# entire pipeline can be run and benchmarked on a laptop with no Azure or AWS account.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: sentinel
+      POSTGRES_DB: sentinel
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./config/init-readonly-role.sql:/docker-entrypoint-initdb.d/10-readonly.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  # Trace explorer. Optional, but the first thing you want when an agent misbehaves.
+  langfuse:
+    image: langfuse/langfuse:2
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports: ["3000:3000"]
+    environment:
+      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinel
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-secret-not-for-production
+      SALT: dev-salt-not-for-production
+
+volumes:
+  pgdata:

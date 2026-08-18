@@ -1,0 +1,68 @@
+# Access control for the knowledge corpus.
+#
+# Rules are evaluated top to bottom and later matches override earlier ones — the same convention
+# as a firewall ruleset, so the file reads from general to specific.
+#
+# Deny by default: a document matching no rule is admin-only. That means a new folder appearing in
+# the source system cannot silently become readable by the support role, which is the failure this
+# file exists to prevent.
+#
+# This file lives in git and is reviewed like code. "Why can support see this document?" is
+# answered by pointing at a line here, which is the answer a compliance review actually wants.
+
+defaults:
+  allowed_roles: [admin]
+  components: []
+
+rules:
+  # Methodology is the shared vocabulary of the platform. Everyone who operates it needs it.
+  - match:
+      doc_type: methodology
+    allowed_roles: [admin, workflow, support]
+    components: []
+
+  - match:
+      doc_type: glossary
+    allowed_roles: [admin, workflow, support]
+
+  # Generated index fact sheets: broadly readable, scoped to the calculation engine.
+  - match:
+      doc_type: factsheet
+    allowed_roles: [admin, workflow, support]
+    components: [ice]
+
+  # Runbooks are scoped by the component they operate on, so a data-feed engineer does not receive
+  # calculation-engine procedures they cannot act on.
+  #
+  # `source_any` matches any listed substring, so a component can be named as a directory
+  # (knowledge/ice/) or as a filename prefix (ice-restart.md) without duplicating the rule. Match on
+  # the path rather than on document content: content-based rules are guesses, and a guess in an
+  # access control file is a leak waiting to happen.
+  - match:
+      doc_type: runbook
+      source_any: ["/ice/", "ice-", "calculation-engine"]
+    allowed_roles: [admin, workflow]
+    components: [ice]
+
+  - match:
+      doc_type: runbook
+      source_any: ["/data-feed/", "feed-", "-feed"]
+    allowed_roles: [admin, workflow, support]
+    components: [data-feed]
+
+  - match:
+      doc_type: runbook
+      source_any: ["/exchange-delivery/", "exchange-", "delivery-"]
+    allowed_roles: [admin, workflow]
+    components: [exchange-delivery]
+
+  # Incident post-mortems name clients, monetary impact and internal failings. Admin only.
+  - match:
+      doc_type: incident
+    allowed_roles: [admin]
+
+  # Anything under a directory marked restricted stays admin-only regardless of type. Placed last
+  # so it overrides every rule above.
+  - match:
+      source_contains: /restricted/
+    allowed_roles: [admin]
