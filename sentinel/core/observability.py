@@ -32,7 +32,7 @@ import structlog
 
 # --------------------------------------------------------------------------- optional deps
 try:
-    from prometheus_client import Counter, Gauge, Histogram
+    from prometheus_client import Counter, Histogram
 
     _PROM = True
 except ImportError:  # metrics are optional; the pipeline must run without them
@@ -46,7 +46,7 @@ except ImportError:  # metrics are optional; the pipeline must run without them
         def observe(self, *a: Any, **k: Any) -> None: ...
         def set(self, *a: Any, **k: Any) -> None: ...
 
-    Counter = Histogram = Gauge = lambda *a, **k: _Noop()  # type: ignore[assignment]
+    Counter = Histogram = lambda *a, **k: _Noop()  # type: ignore[assignment]
 
 
 def configure_logging(level: str | None = None, json_output: bool | None = None) -> None:

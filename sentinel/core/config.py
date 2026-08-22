@@ -175,7 +175,7 @@ class Settings(BaseSettings):
         return "v" + hashlib.sha256(seed.encode()).hexdigest()[:10]
 
     @model_validator(mode="after")
-    def _check_provider_prerequisites(self) -> "Settings":
+    def _check_provider_prerequisites(self) -> Settings:
         """Fails fast on a provider selected without its credentials.
 
         Discovering a missing endpoint after a twenty-minute ingestion run is a bad trade for the

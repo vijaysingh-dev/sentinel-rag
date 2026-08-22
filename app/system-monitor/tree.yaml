@@ -1,0 +1,52 @@
+# Parent -> child dependency graph for the health rollup.
+#
+# Derived from app/otel-demo/compose.yaml's `depends_on` blocks, not hand-invented: this is the
+# same graph compose itself uses to decide start order, so the tree stays truthful to what the
+# platform actually declares as its own dependencies instead of a diagram someone drew once and
+# never updated.
+#
+# Deliberately excluded: otel-collector, flagd, load-generator. Every service depends on the first
+# two for tracing/config, so including them would collapse the tree into "everything's parent is
+# otel-collector" and hide the business-relevant structure. load-generator is a test harness, not
+# a platform component — its death means "we stopped measuring", not "the platform is down". Same
+# reasoning as sentinel's own "what does not go through RAG" boundary: excluding the noisy,
+# always-there dependency is as much the design as including the real ones.
+#
+# This is a DAG, not a strict tree — cart and product-catalog each have two parents. The monitor
+# computes each node's status once and propagates it to every parent that depends on it.
+
+roots:
+  - frontend-proxy
+
+nodes:
+  frontend-proxy:
+    depends_on: [frontend, flagd-ui, telemetry-docs]
+  frontend:
+    depends_on: [ad, cart, checkout, currency, product-catalog, quote, recommendation, shipping, image-provider]
+  checkout:
+    depends_on: [cart, currency, email, payment, product-catalog, shipping]
+  recommendation:
+    depends_on: [product-catalog]
+  cart:
+    depends_on: [valkey-cart]
+  product-catalog:
+    depends_on: [astronomy-db]
+
+  # leaves — no further dependencies tracked
+  ad: {depends_on: []}
+  currency: {depends_on: []}
+  email: {depends_on: []}
+  payment: {depends_on: []}
+  shipping: {depends_on: []}
+  image-provider: {depends_on: []}
+  quote: {depends_on: []}
+  flagd-ui: {depends_on: []}
+  telemetry-docs: {depends_on: []}
+  valkey-cart: {depends_on: []}
+  astronomy-db: {depends_on: []}
+
+# Services in this list have no container-level healthcheck defined in compose.yaml, so Docker
+# never populates State.Health and the monitor falls back to "is the container running at all"
+# as the health signal. Weaker than a real healthcheck (a wedged-but-running process reads as
+# healthy) — worth knowing about before trusting this service's status too far.
+no_healthcheck: [cart]

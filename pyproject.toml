@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "sentinel-rag"
 version = "2.0.0"
 description = "Multi-cloud RAG pipeline and multi-agent RCA system for an index calculation platform"
-requires-python = ">=3.12"
+requires-python = "==3.12.*"
 
 dependencies = [
     "pydantic>=2.9",

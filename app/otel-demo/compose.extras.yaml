@@ -1,0 +1,85 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Extras layer: override this file in your fork to add or modify services
+# for your own observability backend or additional components.
+#
+# This file is intentionally empty. It is always loaded last, giving forks
+# a stable, well-defined seam to customize without touching upstream files.
+#
+# Usage:
+#   docker compose -f compose.yaml -f compose.full.yaml -f compose.observability.yaml -f compose.extras.yaml up
+#
+# Example: add a service and patch the otel-collector to export to it:
+#
+# services:
+#   my-backend:
+#     image: myvendor/backend:latest
+#     ports:
+#       - "4317"
+#
+#   otel-collector:
+#     depends_on:
+#       my-backend:
+#         condition: service_started
+#
+# Then add your exporter config to src/otel-collector/otelcol-config-extras.yml.
+
+# --- sentinel-rag additions below: see /projects/sentinel-rag/app/{system-monitor,incident-generator} ---
+#
+# Why flagd/flagd-ui/astronomy-db get their volumes overridden here rather than left as
+# upstream's `./src/...` bind mounts: this repo's checkout lives on a filesystem where chmod
+# is a no-op (fuseblk/drvfs-style mount — verify with `stat` before assuming otherwise), so any
+# container whose entrypoint drops to a non-root user to read a bind-mounted file gets
+# "permission denied" (postgres and flagd both do this). The fix isn't to chmod the git-tracked
+# copy — it stays git-friendly, portable, and untouched — it's to keep a separate *runtime*
+# staging copy on a real filesystem ($HOME, ext4) that containers actually mount. This also
+# happens to be the right separation on its own merits: incident-generator rewrites
+# demo.flagd.json continuously as flags flip on and off, and that churn has no business showing
+# up as uncommitted changes against the tracked baseline every time `git status` runs.
+#
+# One-time seed, or to reset the running demo back to its shipped defaults:
+#   cp app/otel-demo/src/postgresql/init.sql   ~/.local/share/sentinel-rag/runtime/postgresql/
+#   cp app/otel-demo/src/flagd/demo.flagd.json ~/.local/share/sentinel-rag/runtime/flagd/
+
+services:
+  astronomy-db:
+    volumes:
+      - /home/vijay/.local/share/sentinel-rag/runtime/postgresql/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  flagd:
+    volumes:
+      - /home/vijay/.local/share/sentinel-rag/runtime/flagd:/etc/flagd
+
+  flagd-ui:
+    volumes:
+      - /home/vijay/.local/share/sentinel-rag/runtime/flagd:/app/data
+
+  system-monitor:
+    build:
+      context: /projects/sentinel-rag/app/system-monitor
+    container_name: system-monitor
+    ports:
+      - "8091:8000"
+    volumes:
+      # Read-only access to the Docker API is how this service reads every other container's
+      # own healthcheck state instead of reimplementing gRPC/HTTP/TCP probes per service.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  incident-generator:
+    build:
+      context: /projects/sentinel-rag/app/incident-generator
+    container_name: incident-generator
+    ports:
+      - "8092:8000"
+    volumes:
+      # Same runtime copy flagd and flagd-ui mount above — editing it is how a fault gets
+      # injected, with no flagd API involved.
+      - /home/vijay/.local/share/sentinel-rag/runtime/flagd:/etc/flagd
+      # incidents.jsonl ground truth, kept outside the container so it survives a rebuild.
+      - /home/vijay/.local/share/sentinel-rag/app/incident-generator-data:/app/data
+    depends_on:
+      flagd:
+        condition: service_started
+    restart: unless-stopped

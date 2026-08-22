@@ -21,12 +21,12 @@ Each of those has a runnable answer here.
 ## Quick start — no cloud account required
 
 ```bash
-pip install -e '.[local,observability,dev]'
+uv sync --extra local --extra observability --extra dev
 cp .env.example .env
 make up                    # postgres+pgvector, redis, langfuse
 make doctor                # which providers are usable here
 make ingest                # index ./knowledge
-python scripts/vectorstore/01_index_and_search.py
+uv run python scripts/vectorstore/01_index_and_search.py
 make test
 ```
 
@@ -126,10 +126,10 @@ Each writes a CSV to `benchmarks/results/` and a markdown leaderboard to `docs/`
 
 ## Requirements
 
-Python 3.11+. Docker for the local stack. Cloud extras are optional:
+Python 3.12. Docker for the local stack. Cloud extras are optional:
 
 ```bash
-pip install -e '.[azure]'   # Document Intelligence, AI Search, Azure OpenAI
-pip install -e '.[aws]'     # Textract, OpenSearch, Bedrock
-pip install -e '.[all]'
+uv sync --extra azure   # Document Intelligence, AI Search, Azure OpenAI
+uv sync --extra aws     # Textract, OpenSearch, Bedrock
+uv sync --extra all
 ```

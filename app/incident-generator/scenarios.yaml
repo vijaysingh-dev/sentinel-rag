@@ -1,0 +1,74 @@
+# Named fault scenarios, expressed as flagd flag flips.
+#
+# flagd (in app/otel-demo) reads its flag config from a JSON file it watches for changes —
+# demo.flagd.json — and reloads live, no restart needed. That file is the same mechanism
+# flagd-ui uses to let a human toggle flags by hand; this generator does the same edit
+# programmatically, on a schedule, instead of a person clicking a button. Nothing here talks
+# to a flagd API — it just writes the file flagd is already watching.
+#
+# Each scenario names one real failure mode the otel-demo authors built in (see
+# app/otel-demo/src/flagd/demo.flagd.json for the full flag list and descriptions).
+
+scenarios:
+  - name: payment_degraded
+    flag: paymentFailure
+    fault_variant: "50%"
+    reset_variant: "off"
+    duration_s: 180
+    note: "checkout depends on payment (service_healthy) — expect checkout and frontend to degrade"
+
+  - name: payment_outage
+    flag: paymentUnreachable
+    fault_variant: "on"
+    reset_variant: "off"
+    duration_s: 120
+    note: "harder failure than payment_degraded — payment is fully unreachable, not just flaky"
+
+  - name: cart_outage
+    flag: cartFailure
+    fault_variant: "100%"
+    reset_variant: "off"
+    duration_s: 150
+    note: "cart has no container healthcheck (see tree.yaml no_healthcheck) — rollup relies on process liveness only"
+
+  - name: ad_service_down
+    flag: adFailure
+    fault_variant: "on"
+    reset_variant: "off"
+    duration_s: 150
+    note: "ad is a leaf under frontend — isolated failure, should not cascade past frontend"
+
+  - name: ad_high_cpu
+    flag: adHighCpu
+    fault_variant: "on"
+    reset_variant: "off"
+    duration_s: 200
+    note: "resource exhaustion rather than a hard failure — may show as slow, not down"
+
+  - name: recommendation_cache_failure
+    flag: recommendationCacheFailure
+    fault_variant: "on"
+    reset_variant: "off"
+    duration_s: 150
+    note: "recommendation depends on product-catalog — watch whether the fault stays isolated"
+
+  - name: product_catalog_failure
+    flag: productCatalogFailure
+    fault_variant: "on"
+    reset_variant: "off"
+    duration_s: 150
+    note: "product-catalog is a shared dependency of both frontend and recommendation — good multi-parent test"
+
+  - name: shipping_slowdown
+    flag: intlShippingSlowdown
+    fault_variant: "10sec"
+    reset_variant: "off"
+    duration_s: 200
+    note: "latency injection, not a hard failure — healthchecks may stay green while checkout gets slow"
+
+  - name: email_memory_leak
+    flag: emailMemoryLeak
+    fault_variant: "1000x"
+    reset_variant: "off"
+    duration_s: 240
+    note: "degrades gradually — a good case for noticing a trend before the healthcheck flips"

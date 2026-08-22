@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
 
 from langchain_core.tools import tool
 
@@ -96,7 +95,7 @@ async def run_readonly_sql(sql: str, purpose: str) -> dict:
             cur.execute("SET LOCAL sentinel.tenant_id = %s", (current_tenant(),))
             cur.execute(safe_sql)
             columns = [d.name for d in cur.description]
-            rows = [dict(zip(columns, r)) for r in cur.fetchall()]
+            rows = [dict(zip(columns, r, strict=True)) for r in cur.fetchall()]
     except Exception as exc:
         TOOL_CALLS.labels("run_readonly_sql", "error").inc()
         log.warning("sql_failed", error=type(exc).__name__, purpose=purpose)

@@ -8,7 +8,6 @@ exception, and each is scoped by the authenticated tenant rather than by a model
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any
 
 from langchain_core.tools import tool
 
@@ -74,7 +73,7 @@ async def corporate_actions(index_id: str, days: int = 5) -> dict:
         actions = await reference_data_client().corporate_actions(
             tenant_id=current_tenant(), index_id=index_id, days=days
         )
-    except Exception as exc:
+    except Exception:
         TOOL_CALLS.labels("corporate_actions", "error").inc()
         return {
             "error": "reference data unavailable",
@@ -103,7 +102,7 @@ async def feed_status(feed_name: str | None = None) -> dict:
         from sentinel.rca.clients import monitor_client
 
         status = await monitor_client().feed_health(tenant_id=current_tenant(), feed=feed_name)
-    except Exception as exc:
+    except Exception:
         TOOL_CALLS.labels("feed_status", "error").inc()
         return {"error": "monitoring unavailable", "instruction": "Note that live feed health could not be checked."}
 
