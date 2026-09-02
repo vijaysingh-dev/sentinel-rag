@@ -116,7 +116,13 @@ class Settings(BaseSettings):
     max_usd_per_run: float = 2.50
     breaker_threshold: int = 5
     breaker_cooldown_s: int = 60
-    sql_row_limit: int = 500
+    sql_row_limit: int = 500  # retained: still enforced if a SQL warehouse tool is wired back in
+    promql_max_range_hours: int = 6  # a range query wider than this is rejected before it runs
+    prometheus_url: str = "http://localhost:9090"
+    jaeger_url: str = "http://localhost:16686"
+    flagd_config_path: str = ""  # path to demo.flagd.json; empty -> flag tools return "unconfigured"
+    incident_log_url: str = "http://localhost:8092"  # app/incident-generator
+    system_monitor_url: str = "http://localhost:8091"  # app/system-monitor
 
     # ------------------------------------------------------------------------- observability
     langfuse_public_key: str = ""

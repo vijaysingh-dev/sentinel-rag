@@ -15,6 +15,7 @@ dependencies = [
     "tiktoken>=0.8",
     "numpy>=1.26",
     "pyyaml>=6.0",
+    "httpx>=0.27",
     "langchain-core>=0.3.15",
     "langgraph>=0.2.45",
     "langgraph-checkpoint-postgres>=2.0",
@@ -65,7 +66,25 @@ dev = [
     "mypy>=1.13",
 ]
 
-all = ["sentinel-rag[local,azure,aws,observability,dev]"]
+# The LangGraph dev server, for driving the graph from the web/ chat UI (`make chat-server`).
+# Separate extra because it pulls a FastAPI/uvicorn dev stack that nothing else needs.
+chat = [
+    "langgraph-cli[inmem]>=0.1.55",
+]
+
+# Corpus generation: writes the knowledge corpus (PDF/DOCX/PPTX/XLSX/MD) from the otel-demo's
+# own compose.yaml, dependency graph and flagd fault list. Tooling only — nothing in `sentinel/`
+# imports it. Kept out of `local` so the pipeline's install stays about *reading* documents.
+corpus = [
+    "reportlab>=4.2",
+    "pillow>=10.4",
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "openpyxl>=3.1",
+    "pyyaml>=6.0",
+]
+
+all = ["sentinel-rag[local,azure,aws,observability,dev,corpus,chat]"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["sentinel"]

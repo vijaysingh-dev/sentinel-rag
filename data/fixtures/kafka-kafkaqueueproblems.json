@@ -1,0 +1,131 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:runbook-kafka",
+      "title": "kafka runbook > Known failure modes > kafkaQueueProblems",
+      "doc_type": "runbook",
+      "score": 0.82,
+      "text": "kafkaQueueProblems. Effect: fault injected. Signature: kafka_consumergroup_lag climbing for accounting and fraud-detection; checkout produce latency up; storefront unaffected. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
+    },
+    {
+      "ref": "doc:incident-kafka",
+      "title": "Past incident: kafka kafkaQueueProblems",
+      "doc_type": "incident",
+      "score": 0.74,
+      "text": "The kafkaQueueProblems feature flag was set to its fault variant. kafka was healthy; the failure was injected at the flag layer. Alert fired first on a downstream service."
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:fixture0001",
+    "expr": "error ratio / duration for kafka and its dependencies",
+    "window_minutes": 30,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "kafka"
+          },
+          "first": 0.002,
+          "last": 0.34,
+          "min": 0.002,
+          "max": 0.34,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        },
+        {
+          "labels": {
+            "service_name": "kafka"
+          },
+          "first": 0.002,
+          "last": 0.34,
+          "min": 0.002,
+          "max": 0.34,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        }
+      ],
+      "series_count": 2
+    }
+  },
+  "find_traces": {
+    "ref": "trace:fixture0001",
+    "service": "kafka",
+    "count": 3,
+    "traces": [
+      {
+        "trace_id": "abc123def456",
+        "found": true,
+        "duration_ms": 210.0,
+        "span_count": 12,
+        "services": [
+          "kafka"
+        ],
+        "slowest_span": {
+          "service": "kafka",
+          "operation": "checkout",
+          "duration_ms": 40.0,
+          "share_of_trace": 0.19
+        },
+        "error_spans": [
+          {
+            "service": "kafka",
+            "operation": "checkout",
+            "message": "fault injected via flag"
+          }
+        ]
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span."
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "kafkaQueueProblems",
+          "current_variant": "on",
+          "resting_variant": "off",
+          "active": true,
+          "value": "on"
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:6h",
+    "count": 1,
+    "changes": [
+      {
+        "ts": "2026-06-01T14:29:00+00:00",
+        "flag": "kafkaQueueProblems",
+        "event": "incident_start",
+        "variant": "on",
+        "note": ""
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:10",
+    "count": 1,
+    "incidents": [
+      {
+        "ts": "2026-06-01T14:29:00+00:00",
+        "scenario": "kafka_fault",
+        "flag": "kafkaQueueProblems",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "scheduled fault injection"
+      }
+    ]
+  }
+}

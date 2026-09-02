@@ -1,0 +1,157 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:runbook-email",
+      "title": "email runbook > Known failure modes > emailMemoryLeak",
+      "doc_type": "runbook",
+      "score": 0.82,
+      "text": "emailMemoryLeak. Effect: fault injected. Signature: email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort). Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
+    },
+    {
+      "ref": "doc:incident-email",
+      "title": "Past incident: email emailMemoryLeak",
+      "doc_type": "incident",
+      "score": 0.74,
+      "text": "The emailMemoryLeak feature flag was set to its fault variant. email was healthy; the failure was injected at the flag layer. Alert fired first on a downstream service."
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:fixture0001",
+    "expr": "error ratio / duration for checkout and its dependencies",
+    "window_minutes": 30,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "checkout"
+          },
+          "first": 0.12,
+          "last": 0.9,
+          "min": 0.12,
+          "max": 0.9,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        },
+        {
+          "labels": {
+            "service_name": "email"
+          },
+          "first": 0.12,
+          "last": 0.9,
+          "min": 0.12,
+          "max": 0.9,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        },
+        {
+          "labels": {
+            "service_name": "cart"
+          },
+          "first": 0.11,
+          "last": 0.12,
+          "min": 0.11,
+          "max": 0.12,
+          "direction": "flat",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        },
+        {
+          "labels": {
+            "service_name": "currency"
+          },
+          "first": 0.11,
+          "last": 0.12,
+          "min": 0.11,
+          "max": 0.12,
+          "direction": "flat",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        }
+      ],
+      "series_count": 4
+    }
+  },
+  "find_traces": {
+    "ref": "trace:fixture0001",
+    "service": "checkout",
+    "count": 3,
+    "traces": [
+      {
+        "trace_id": "abc123def456",
+        "found": true,
+        "duration_ms": 1840.0,
+        "span_count": 12,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "payment",
+          "product-catalog",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "email",
+          "operation": "grpc.execute",
+          "duration_ms": 1600.0,
+          "share_of_trace": 0.87
+        },
+        "error_spans": []
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span."
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "emailMemoryLeak",
+          "current_variant": "on",
+          "resting_variant": "off",
+          "active": true,
+          "value": "on"
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:6h",
+    "count": 1,
+    "changes": [
+      {
+        "ts": "2026-06-01T14:29:00+00:00",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "on",
+        "note": ""
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:10",
+    "count": 1,
+    "incidents": [
+      {
+        "ts": "2026-06-01T14:29:00+00:00",
+        "scenario": "email_fault",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "scheduled fault injection"
+      }
+    ]
+  }
+}
