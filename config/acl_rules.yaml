@@ -1,68 +1,89 @@
-# Access control for the knowledge corpus.
+# Access control for the Astroshop knowledge corpus.
 #
 # Rules are evaluated top to bottom and later matches override earlier ones — the same convention
 # as a firewall ruleset, so the file reads from general to specific.
 #
 # Deny by default: a document matching no rule is admin-only. That means a new folder appearing in
-# the source system cannot silently become readable by the support role, which is the failure this
-# file exists to prevent.
+# the source system cannot silently become readable by a lower-privileged role, which is the
+# failure this file exists to prevent.
 #
-# This file lives in git and is reviewed like code. "Why can support see this document?" is
+# This file lives in git and is reviewed like code. "Why can the sre role see this document?" is
 # answered by pointing at a line here, which is the answer a compliance review actually wants.
+#
+# Roles, lowest to highest privilege:
+#   viewer  — read-only stakeholder. Glossary and architecture only.
+#   oncall  — anyone who takes a pager. All runbooks, all non-sensitive post-mortems, ADRs.
+#   sre     — platform on-call. Everything oncall sees, plus capacity and SLO internals.
+#   admin   — full access, including customer-impact and security material.
 
 defaults:
   allowed_roles: [admin]
   components: []
 
 rules:
-  # Methodology is the shared vocabulary of the platform. Everyone who operates it needs it.
-  - match:
-      doc_type: methodology
-    allowed_roles: [admin, workflow, support]
-    components: []
-
+  # The shared vocabulary and the big picture. Everyone who touches the platform needs these.
   - match:
       doc_type: glossary
-    allowed_roles: [admin, workflow, support]
+    allowed_roles: [admin, sre, oncall, viewer]
 
-  # Generated index fact sheets: broadly readable, scoped to the calculation engine.
   - match:
-      doc_type: factsheet
-    allowed_roles: [admin, workflow, support]
-    components: [ice]
+      doc_type: architecture
+    allowed_roles: [admin, sre, oncall, viewer]
 
-  # Runbooks are scoped by the component they operate on, so a data-feed engineer does not receive
-  # calculation-engine procedures they cannot act on.
+  # ADRs explain why the platform is built the way it is. Readable by anyone on a pager; not by a
+  # read-only viewer, because a few reference internal failure history.
+  - match:
+      doc_type: adr
+    allowed_roles: [admin, sre, oncall]
+
+  # Runbooks are scoped by the team that owns the service, so a catalog engineer is not paged
+  # with checkout-internal procedures they cannot act on. `source_any` matches any listed
+  # substring, so the service name in the filename is enough — no per-file rule.
   #
-  # `source_any` matches any listed substring, so a component can be named as a directory
-  # (knowledge/ice/) or as a filename prefix (ice-restart.md) without duplicating the rule. Match on
-  # the path rather than on document content: content-based rules are guesses, and a guess in an
-  # access control file is a leak waiting to happen.
+  # Match on the path, never on document content: a content-based access rule is a guess, and a
+  # guess in an access-control file is a leak waiting to happen.
   - match:
       doc_type: runbook
-      source_any: ["/ice/", "ice-", "calculation-engine"]
-    allowed_roles: [admin, workflow]
-    components: [ice]
+    allowed_roles: [admin, sre, oncall]
+    components: [platform]
 
-  - match:
-      doc_type: runbook
-      source_any: ["/data-feed/", "feed-", "-feed"]
-    allowed_roles: [admin, workflow, support]
-    components: [data-feed]
-
-  - match:
-      doc_type: runbook
-      source_any: ["/exchange-delivery/", "exchange-", "delivery-"]
-    allowed_roles: [admin, workflow]
-    components: [exchange-delivery]
-
-  # Incident post-mortems name clients, monetary impact and internal failings. Admin only.
+  # Post-mortems name customer impact, monetary estimates and internal response failings.
+  # Default to admin-only; the fault-injection incidents in this environment carry no real
+  # customer data, so the non-sensitive ones are opened to sre and oncall for learning.
   - match:
       doc_type: incident
     allowed_roles: [admin]
 
+  - match:
+      doc_type: incident
+      source_any: ["-adfailure", "-adhighcpu", "-admanualgc", "-imageslowload",
+                   "-intlshippingslowdown", "-recommendationcachefailure", "-emailmemoryleak",
+                   "-kafkaqueueproblems", "-failedreadinessprobe", "-productcatalogfailure"]
+    allowed_roles: [admin, sre, oncall]
+    components: [platform]
+
+  # Capacity and SLO-attainment internals: business-sensitive (headroom numbers, budget burn),
+  # readable by sre and admin but not by general on-call or viewers.
+  - match:
+      doc_type: reference
+      source_any: ["capacity-review", "quarterly-slo-report"]
+    allowed_roles: [admin, sre]
+
+  # The metrics catalog and glossary spreadsheet are operational, not sensitive.
+  - match:
+      doc_type: reference
+      source_any: ["metrics-catalog", "metrics-glossary"]
+    allowed_roles: [admin, sre, oncall]
+
+  # On-call escalation policy: who to page. Everyone on a pager needs it.
+  - match:
+      doc_type: oncall
+    allowed_roles: [admin, sre, oncall]
+    components: [platform]
+
   # Anything under a directory marked restricted stays admin-only regardless of type. Placed last
-  # so it overrides every rule above.
+  # so it overrides every rule above. This is where security reviews and anything naming a real
+  # third party or person belongs.
   - match:
       source_contains: /restricted/
     allowed_roles: [admin]

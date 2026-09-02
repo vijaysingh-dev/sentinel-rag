@@ -1,0 +1,169 @@
+{
+  "tables": [
+    [
+      [
+        "Service",
+        "Tier",
+        "Team",
+        "Calls",
+        "Blast radius"
+      ],
+      [
+        "accounting",
+        "2",
+        "data",
+        "kafka",
+        "—"
+      ],
+      [
+        "ad",
+        "1",
+        "catalog",
+        "—",
+        "frontend, frontend-proxy"
+      ],
+      [
+        "astronomy-db",
+        "1",
+        "platform-eng",
+        "—",
+        "product-catalog, checkout, frontend, recommendation, frontend-proxy"
+      ],
+      [
+        "cart",
+        "0",
+        "checkout",
+        "valkey-cart",
+        "checkout, frontend, frontend-proxy"
+      ],
+      [
+        "checkout",
+        "0",
+        "checkout",
+        "cart, currency, email, payment, product-catalog, shipping",
+        "frontend, frontend-proxy"
+      ],
+      [
+        "currency",
+        "1",
+        "checkout",
+        "—",
+        "checkout, frontend, frontend-proxy"
+      ],
+      [
+        "email",
+        "2",
+        "checkout",
+        "—",
+        "checkout, frontend, frontend-proxy"
+      ],
+      [
+        "flagd",
+        "1",
+        "platform-eng",
+        "—",
+        "—"
+      ],
+      [
+        "fraud-detection",
+        "2",
+        "data",
+        "kafka",
+        "—"
+      ],
+      [
+        "frontend",
+        "0",
+        "storefront",
+        "ad, cart, checkout, currency, product-catalog, quote, recommendation, shipping, image-provider",
+        "frontend-proxy"
+      ],
+      [
+        "frontend-proxy",
+        "0",
+        "storefront",
+        "frontend",
+        "—"
+      ],
+      [
+        "image-provider",
+        "1",
+        "storefront",
+        "—",
+        "frontend, frontend-proxy"
+      ],
+      [
+        "kafka",
+        "1",
+        "data",
+        "—",
+        "accounting, fraud-detection"
+      ],
+      [
+        "otel-collector",
+        "1",
+        "platform-eng",
+        "—",
+        "—"
+      ],
+      [
+        "payment",
+        "0",
+        "checkout",
+        "—",
+        "checkout, frontend, frontend-proxy"
+      ],
+      [
+        "product-catalog",
+        "0",
+        "catalog",
+        "astronomy-db",
+        "checkout, frontend, recommendation, frontend-proxy"
+      ],
+      [
+        "quote",
+        "1",
+        "catalog",
+        "—",
+        "frontend, shipping, checkout, frontend-proxy"
+      ],
+      [
+        "recommendation",
+        "1",
+        "catalog",
+        "product-catalog",
+        "frontend, frontend-proxy"
+      ],
+      [
+        "shipping",
+        "1",
+        "checkout",
+        "quote",
+        "checkout, frontend, frontend-proxy"
+      ],
+      [
+        "valkey-cart",
+        "1",
+        "platform-eng",
+        "—",
+        "cart, checkout, frontend, frontend-proxy"
+      ]
+    ]
+  ],
+  "blocks": [
+    "Astroshop dependency and tier model",
+    "A public astronomy e-commerce storefront. Customers browse a product catalog, add items to a cart, and check out through a synchronous order pipeline. Traffic is synthetic, driven by the load generator; faults are injected through flagd. Telemetry is OpenTelemetry throughout, scraped by Prometheus and traced through Jaeger.",
+    "Tiers",
+    "Tier 0 is the customer-facing critical path",
+    "Reading the graph",
+    "The table on the following page lists every service",
+    "Fault ownership",
+    "Service dependency table"
+  ],
+  "headings": [
+    "Tiers",
+    "Reading the graph",
+    "Fault ownership",
+    "Service dependency table"
+  ]
+}

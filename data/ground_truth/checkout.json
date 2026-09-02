@@ -1,0 +1,49 @@
+{
+  "headings": [
+    "When this fires",
+    "Thresholds",
+    "Dashboards and queries",
+    "Diagnose",
+    "Mitigate",
+    "Escalate",
+    "After the incident"
+  ],
+  "tables": [
+    [
+      [
+        "Signal",
+        "Objective",
+        "Page at"
+      ],
+      [
+        "Availability (28d)",
+        "99.5%",
+        "error budget 50% burned in 1h"
+      ],
+      [
+        "Duration p95",
+        "< 1200 ms",
+        "> 1800 ms for 5m"
+      ],
+      [
+        "Duration p99",
+        "< 2500 ms",
+        "> 3750 ms for 5m"
+      ]
+    ]
+  ],
+  "blocks": [
+    "When this fires",
+    "Thresholds",
+    "Dashboards and queries",
+    "Diagnose",
+    "Mitigate",
+    "Escalate",
+    "After the incident"
+  ],
+  "must_contain": [
+    "checkout",
+    "checkout",
+    "sum(rate(rpc_server_duration_milliseconds_count"
+  ]
+}

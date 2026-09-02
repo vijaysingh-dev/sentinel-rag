@@ -1,0 +1,98 @@
+{
+  "ad": [
+    {
+      "cause": "`adHighCpu` fault flag active",
+      "date": "2026-07-01",
+      "id": "INC-2614",
+      "title": "ad CPU/GC saturation, elevated latency"
+    },
+    {
+      "cause": "`adFailure` fault flag active",
+      "date": "2026-06-08",
+      "id": "INC-2635",
+      "title": "ad returning errors"
+    },
+    {
+      "cause": "`adManualGc` fault flag active",
+      "date": "2026-06-18",
+      "id": "INC-2649",
+      "title": "ad CPU/GC saturation, elevated latency"
+    }
+  ],
+  "cart": [
+    {
+      "cause": "`cartFailure` fault flag active",
+      "date": "2026-08-13",
+      "id": "INC-2663",
+      "title": "cart returning errors"
+    },
+    {
+      "cause": "`failedReadinessProbe` fault flag active",
+      "date": "2026-06-13",
+      "id": "INC-2684",
+      "title": "cart taken out of rotation by a failing readiness probe"
+    }
+  ],
+  "email": [
+    {
+      "cause": "`emailMemoryLeak` fault flag active",
+      "date": "2026-08-13",
+      "id": "INC-2677",
+      "title": "email memory growth and restarts"
+    }
+  ],
+  "frontend": [
+    {
+      "cause": "`imageSlowLoad` fault flag active",
+      "date": "2026-06-24",
+      "id": "INC-2670",
+      "title": "frontend elevated latency"
+    }
+  ],
+  "kafka": [
+    {
+      "cause": "`kafkaQueueProblems` fault flag active",
+      "date": "2026-07-25",
+      "id": "INC-2621",
+      "title": "kafka degraded"
+    }
+  ],
+  "payment": [
+    {
+      "cause": "`paymentFailure` fault flag active",
+      "date": "2026-07-26",
+      "id": "INC-2607",
+      "title": "payment returning errors"
+    },
+    {
+      "cause": "`paymentUnreachable` fault flag active",
+      "date": "2026-06-29",
+      "id": "INC-2642",
+      "title": "payment unreachable, checkout orders failing"
+    }
+  ],
+  "product-catalog": [
+    {
+      "cause": "`productCatalogFailure` fault flag active",
+      "date": "2026-06-16",
+      "id": "INC-2628",
+      "title": "product-catalog returning errors"
+    }
+  ],
+  "recommendation": [
+    {
+      "cause": "`recommendationCacheFailure` fault flag active",
+      "date": "2026-06-19",
+      "id": "INC-2656",
+      "title": "recommendation cache disabled, upstream fan-out spike"
+    }
+  ],
+  "shipping": [
+    {
+      "cause": "`intlShippingSlowdown` fault flag active",
+      "date": "2026-08-12",
+      "id": "INC-2691",
+      "title": "shipping elevated latency"
+    }
+  ]
+}
