@@ -38,11 +38,16 @@ docs/             STAGE-OVERVIEW.md is the primary reference
 make install          # local extras only, no cloud account needed
 make doctor           # which providers are actually usable here
 make up               # postgres+pgvector, redis, langfuse
+make demo-up          # the OpenTelemetry Demo (Astroshop) + Prometheus/Jaeger + incident sidecars
+make corpus           # (re)generate ./knowledge, ground truth, golden set and agent fixtures
 make ingest           # index ./knowledge
 make test             # full suite, no infrastructure required
-make eval             # deterministic evaluation + CI gate
+make eval             # deterministic retrieval evaluation + CI gate
+make eval-agent       # replay the RCA agent against recorded incident fixtures (needs an LLM)
 make bench-parsers    # parser bake-off
-make api              # RCA API on :8080
+make api              # RCA API (custom SSE) on :8080
+make chat-server      # RCA graph over the LangGraph protocol on :2024, for web/
+make chat-ui          # the Agent Chat UI (web/), talks to chat-server
 ```
 
 Run `make doctor` first when something is unexpectedly failing. Most "broken" states are a missing extra or an absent credential, and it reports both in one line.
@@ -135,11 +140,11 @@ If the change is an improvement worth keeping, run `make baseline` and commit `b
 
 Deliberate, not oversights — good places to pick up work:
 
-- `rca/clients.py` is stubbed. Real implementations call the platform's own APIs.
-- The knowledge corpus in `knowledge/` is a small sample. Real evaluation needs a real corpus.
-- `data/golden.jsonl` needs hand-written examples. `evaluation/golden.generate_from_chunks` bootstraps candidates, but synthetic questions are systematically easier than real ones — treat its output as a starting point to edit, not a golden set.
-- No ground-truth files in `data/ground_truth/` yet, so `parser_bakeoff.py` currently falls back to heuristic scoring.
-- Ingestion has no CLI module yet (`make ingest` references `sentinel.ingest.cli`).
+- `rca/clients.py` calls the OpenTelemetry Demo's observability stack (Prometheus, Jaeger, flagd, the incident-generator) — see ADR-027. Endpoints come from `settings` (`prometheus_url`, `jaeger_url`, `flagd_config_path`, `incident_log_url`); `make demo-up` starts the stack and prints the `FLAGD_CONFIG_PATH` to add to `.env`. `ITSMClient.attach_rca` (the one write) is still a stub.
+- The knowledge corpus in `knowledge/` is **generated** by `scripts/corpus/` (`make corpus`) from `scripts/corpus/services.yaml`, a curated model of the otel-demo platform. ~49 documents across MD/PDF/DOCX/PPTX/XLSX. Edit the YAML and regenerate to reshape it.
+- `data/golden.jsonl` is a hand-authored 46-example seed set (`scripts/corpus/gen_golden.py`, balanced against `evaluation/golden.TARGET_MIX`). Grow it from real failures: `evaluation/golden.generate_from_chunks` proposes candidates and `scripts/corpus/_incident_truth.jsonl` gives correct-by-construction RCA-trajectory seeds, but synthetic questions are systematically easier than real ones — edit, don't just generate.
+- `data/ground_truth/` is populated for the benchmark-critical documents by `scripts/corpus/gen_ground_truth.py`. The scanned card's truth is hand-transcribed; the rest is derived from the same model that writes the documents.
+- `data/agent_cases.jsonl` + `data/fixtures/` are generated (`scripts/corpus/gen_agent_cases.py`): one trajectory-eval case per fault scenario, with recorded tool output consistent with the incident ground truth, so `make eval-agent` replays a full investigation with no Prometheus/Jaeger running. Capture interesting *live* failures and add them here as new cases.
 
 ## When numbers appear in documentation
 
