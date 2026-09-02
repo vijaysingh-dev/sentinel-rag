@@ -27,7 +27,11 @@ from sentinel.rca.resilience import with_node_guard
 from sentinel.rca.state import Evidence, SentinelState
 
 # Prefixes of citation handles the tools emit. A ref outside this set never came from a tool.
-REF_PREFIXES = {"sql", "doc", "deploy", "feed", "ca", "snapshot", "log"}
+#   doc      search_knowledge          promql    query_prometheus
+#   trace    find_traces               flags     current_flags
+#   flagchg  flag_changes              deploy    recent_deployments
+#   inclog   incident_history
+REF_PREFIXES = {"doc", "promql", "trace", "flags", "flagchg", "deploy", "inclog"}
 
 
 class ExtractedClaim(BaseModel):

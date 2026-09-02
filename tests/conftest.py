@@ -141,27 +141,31 @@ def store(embedder: FakeEmbedder) -> FakeStore:
     chunks = [
         make_chunk(
             "d1::0001::a",
-            "ICE restart procedure drain queue rolling restart",
-            ["admin", "workflow"],
-            ["ice"],
+            "checkout runbook rule out upstream first payment shipping cart dependencies trace",
+            ["admin", "sre", "oncall"],
+            ["platform"],
             "runbook",
         ),
         make_chunk(
             "d2::0001::b",
-            "divisor adjustment special dividend ex-date methodology",
-            ["admin", "workflow", "support"],
+            "RED metrics rate errors duration glossary observability terminology",
+            ["admin", "sre", "oncall", "viewer"],
             [],
-            "methodology",
+            "glossary",
         ),
         make_chunk(
-            "d3::0001::c", "INCIDENT-4471 post-mortem unprocessed spin-off admin only", ["admin"], ["ice"], "incident"
+            "d3::0001::c",
+            "INC-2642 payment unreachable post-mortem customer impact admin only",
+            ["admin"],
+            ["platform"],
+            "incident",
         ),
         make_chunk(
             "d4::0001::d",
-            "feed staleness threshold 90 seconds 300 seconds suspension",
-            ["admin", "workflow", "support"],
-            ["data-feed"],
-            "runbook",
+            "capacity review product-catalog read replica headroom sre only",
+            ["admin", "sre"],
+            [],
+            "reference",
         ),
     ]
     fake.upsert(embedder.embed_chunks(chunks))

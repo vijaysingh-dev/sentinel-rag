@@ -5,8 +5,8 @@ properties that people routinely conflate:
 
 1. **A restricted chunk is not returned.** The obvious one.
 2. **The refusal does not disclose that the chunk exists.** The subtle one. "You don't have access
-   to the EU_TECH_50 incident post-mortem" has already leaked that there was an incident on that
-   index — which in a regulated environment can itself be material information.
+   to the INC-2642 payment-outage post-mortem" has already leaked that there was a payment outage
+   — which can itself be information the caller was not meant to have.
 
 Both are release gates, not metrics to average.
 """
@@ -20,9 +20,9 @@ from sentinel.retrieval.pipeline import RetrievalPipeline
 from sentinel.vectorstore.base import SearchFilter
 
 
-def test_support_cannot_see_admin_only_incident(store, embedder):
+def test_oncall_cannot_see_admin_only_incident(store, embedder):
     pipeline = RetrievalPipeline(store=store, embedder=embedder, reranker=None, use_cache=False)
-    results = pipeline.retrieve("INCIDENT-4471 spin-off post-mortem", roles=["support"])
+    results = pipeline.retrieve("payment unreachable post-mortem", roles=["oncall"])
 
     returned = [c.chunk.chunk_id for c in results.chunks]
     assert "d3::0001::c" not in returned
@@ -30,7 +30,7 @@ def test_support_cannot_see_admin_only_incident(store, embedder):
 
 def test_admin_can_see_admin_only_incident(store, embedder):
     pipeline = RetrievalPipeline(store=store, embedder=embedder, reranker=None, use_cache=False)
-    results = pipeline.retrieve("INCIDENT-4471 spin-off post-mortem", roles=["admin"])
+    results = pipeline.retrieve("payment unreachable post-mortem", roles=["admin"])
 
     assert any(c.chunk.chunk_id == "d3::0001::c" for c in results.chunks)
 
@@ -48,22 +48,22 @@ def test_pipeline_refuses_empty_roles(store, embedder):
 
 
 def test_component_scoping_narrows_results(store, embedder):
-    """A support engineer scoped to data-feed must not receive ICE runbooks."""
+    """A caller scoped to one component must not receive another component's documents."""
     pipeline = RetrievalPipeline(store=store, embedder=embedder, reranker=None, use_cache=False)
     results = pipeline.retrieve(
-        "restart procedure and feed thresholds",
-        roles=["support"],
-        components=["data-feed"],
+        "runbook and capacity thresholds",
+        roles=["sre"],
+        components=["billing"],
     )
 
     for item in results.chunks:
-        assert not item.chunk.components or "data-feed" in item.chunk.components
+        assert not item.chunk.components or "billing" in item.chunk.components
 
 
 def test_untagged_chunks_are_platform_wide(store, embedder):
     """A chunk with no component tag is visible to any authorised role."""
     pipeline = RetrievalPipeline(store=store, embedder=embedder, reranker=None, use_cache=False)
-    results = pipeline.retrieve("divisor adjustment methodology", roles=["support"], components=["data-feed"])
+    results = pipeline.retrieve("RED metrics terminology", roles=["oncall"], components=["platform"])
 
     assert any(c.chunk.chunk_id == "d2::0001::b" for c in results.chunks)
 
@@ -78,10 +78,10 @@ def test_authorization_assertion_catches_mistagged_chunk(store, embedder):
 
     leaked = RetrievedChunk(chunk=store.records["d3::0001::c"], score=1.0)
     with pytest.raises(AuthorizationViolation):
-        RetrievalPipeline._assert_authorized([leaked], roles=["support"], components=[])
+        RetrievalPipeline._assert_authorized([leaked], roles=["oncall"], components=[])
 
 
-@pytest.mark.parametrize("forbidden", ["INCIDENT-4471", "spin-off", "post-mortem"])
+@pytest.mark.parametrize("forbidden", ["INC-2642", "payment unreachable", "post-mortem"])
 def test_refusal_does_not_disclose_existence(forbidden):
     """A denial must not name what was withheld.
 

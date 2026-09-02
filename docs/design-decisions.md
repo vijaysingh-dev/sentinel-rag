@@ -377,3 +377,21 @@ Error signatures from resolved incidents are the opposite: small, stable, and ex
 **Rejected.** Leaving ruff at 100 and lowering everything else to match. Would shrink usable width for JSON/YAML/JS/TS files, which had no independent reason to be narrower.
 
 **Cost.** Existing Python source wrapped for 100 columns doesn't need reflowing, but new code can now run wider — a slightly higher ceiling for line bloat before ruff complains.
+
+---
+
+## ADR-027 — The RCA agent's target system is the OpenTelemetry Demo, not a fictional index platform
+
+**Decision.** Sentinel's domain moves from a fictional "financial index calculation platform" to the [OpenTelemetry Demo](https://github.com/open-telemetry/opentelemetry-demo) (`app/otel-demo/`), a real running ~20-service e-commerce deployment, themed here as "Astroshop". `rca/clients.py`, the warehouse tool, the change tool, the prompts and the specialist roster are rewritten against it. The pipeline stages (`parsing/`, `chunking/`, `embedding/`, `vectorstore/`, `retrieval/`, `reranking/`, `evaluation/`) are domain-agnostic and do not change.
+
+**Reasoning.** The financial theme was fiction with every dependency stubbed, so "what breaks in production" was an assertion rather than something demonstrable. The otel-demo is a real system with real OpenTelemetry traces and metrics, a real dependency graph (its own `compose.yaml`), and injectable faults (`flagd`) whose ground truth is exact — `app/incident-generator` records the flag it flipped and when. Re-theming turns every stubbed client into one that reads a live signal, makes the knowledge corpus documentation of a system that actually exists, and makes agent evaluation checkable against `scripts/corpus/_incident_truth.jsonl` instead of a hand-written answer key.
+
+The CLA​UDE.md invariants are unchanged — `require_scope` fail-closed, filters-in-query, `publish_node` needs `approved_by`, `DEGRADED_CONFIDENCE_CAP` enforced in code, supervisor holds no tools. They were never financial; they are structural, and they survive the re-theme verbatim.
+
+The warehouse tool becomes a PromQL tool. The four-layer defence is preserved and re-expressed: parse the expression rather than regex it (PromQL has no parser in the stdlib, so the guard is a metric-name allowlist plus a mandatory bounded range and a forbidden-function list), a single expression only, a forced time bound, and a read-only Prometheus HTTP endpoint — the layer that actually guarantees it, exactly as the read-only database role did.
+
+**Rejected.** Keeping the financial theme and just enlarging the corpus. Less disruption, but it means writing more fiction and the "what breaks in production" claims stay untestable — which is the specific thing this repository exists to avoid.
+
+**Rejected.** Adopting a third-party RAG framework (LlamaIndex, Haystack, RAGFlow) as the base and building the agent on top. Throws away the parts that are the point here — the security model, provider symmetry, the eval gate, the agent tool-isolation constraints — to inherit someone else's abstractions.
+
+**Cost.** A one-time rewrite of five files plus `tests/test_trajectory.py` (which hard-codes `index_values` in its SQL fixtures and the `run_readonly_sql` tool name). The otel-demo is vendored under `app/otel-demo/` (~large, Apache-2.0), kept as read-only input. Some knowledge of the financial framing is now only in git history and `.archive/`.

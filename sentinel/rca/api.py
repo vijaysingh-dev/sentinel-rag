@@ -31,7 +31,7 @@ from sentinel.rca.graph import build_graph
 from sentinel.rca.runtime import request_context
 from sentinel.rca.state import new_state
 
-app = FastAPI(title="Sentinel RCA", version="2.0")
+app = FastAPI(title="Sentinel RCA — Astroshop", version="2.0")
 
 
 class StartRequest(BaseModel):

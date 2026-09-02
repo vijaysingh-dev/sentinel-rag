@@ -19,7 +19,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 Severity = Literal["p1", "p2", "p3", "noise"]
-AgentName = Literal["knowledge", "data", "change"]
+AgentName = Literal["knowledge", "metrics", "tracing", "change"]
 
 
 class Evidence(BaseModel):

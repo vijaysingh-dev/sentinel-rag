@@ -32,19 +32,20 @@ from sentinel.core.observability import CACHE_EVENTS, log
 # makes a live tool cacheable, which is the failure this whole module exists to prevent. There is a
 # regression test for it in `tests/test_pipeline.py`.
 #
-# `recent_deployments` and `corporate_actions` look like history and are still listed, because the
-# window they query ends at "now": a cached answer to "did anything ship this morning" is wrong
-# the moment something ships.
+# `recent_deployments`, `flag_changes` and `incident_history` look like history and are still
+# listed, because the window they query ends at "now": a cached answer to "did anything ship this
+# morning" is wrong the moment something ships.
 LIVE_TOOLS = {
     # implemented in rca/tools/
-    "feed_status",
-    "run_readonly_sql",
+    "query_prometheus",
+    "find_traces",
+    "current_flags",
+    "flag_changes",
     "recent_deployments",
-    "corporate_actions",
+    "incident_history",
     # platform monitoring tools this agent also fronts
     "system_monitor_health",
-    "ice_status",
-    "exchange_delivery_status",
+    "service_health_rollup",
     "kafka_lag",
     "query_logs",
 }

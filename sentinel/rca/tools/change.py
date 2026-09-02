@@ -1,8 +1,11 @@
-"""Deployment, configuration and corporate-action lookups for the change specialist.
+"""Change-history lookups for the change specialist: flags, deploys, and the incident log.
 
-These are stubbed against the platform's own services. What matters architecturally is the shape:
-each returns a `ref` so claims are traceable, each fails soft with an instruction rather than an
-exception, and each is scoped by the authenticated tenant rather than by a model-supplied argument.
+These are stubbed against the otel-demo's control plane (flagd, the CD pipeline, the
+incident-generator). What matters architecturally is the shape: each returns a `ref` so claims
+are traceable, each fails soft with an instruction rather than an exception, and each is scoped by
+the authenticated tenant rather than by a model-supplied argument.
+
+`current_flags` reads live state, so its output is never cached — see `core/cache.LIVE_TOOLS`.
 """
 
 from __future__ import annotations
@@ -16,13 +19,77 @@ from sentinel.rca.runtime import current_tenant, fixture_lookup
 
 
 @tool
-async def recent_deployments(service: str | None = None, hours: int = 24) -> dict:
-    """List deployments and configuration changes in a recent window.
+async def current_flags(only_changed: bool = True) -> dict:
+    """The current feature-flag configuration, and which flags are off their default.
 
-    Correlation in time is a lead, not a cause — report the timing and let the evidence stand.
+    On this platform every injectable fault is a flag flip, so this is usually the fastest route
+    to a cause: if a flag is set and its change time lines up with the alert, that is the answer.
+    Live state — never cached.
 
     Args:
-        service: Optional service filter, e.g. 'ice', 'data-feed', 'exchange-delivery'.
+        only_changed: Return only flags that are not on their default variant. Default true.
+    """
+    recorded = fixture_lookup("current_flags")
+    if recorded is not None:
+        TOOL_CALLS.labels("current_flags", "fixture").inc()
+        return recorded
+
+    try:
+        from sentinel.rca.clients import flag_client
+
+        flags = await flag_client().current_flags(only_non_default=only_changed)
+    except Exception as exc:
+        TOOL_CALLS.labels("current_flags", "error").inc()
+        log.warning("flag_lookup_failed", error=type(exc).__name__)
+        return {
+            "error": "flag service unavailable",
+            "instruction": "Note that the current flag configuration could not be checked.",
+        }
+
+    TOOL_CALLS.labels("current_flags", "ok").inc()
+    return {"ref": "flags:current", "flags": flags}
+
+
+@tool
+async def flag_changes(hours: int = 6) -> dict:
+    """Feature-flag changes in a recent window, with timestamps.
+
+    A flag whose change time is a few minutes before the anomaly is a strong lead. Correlation in
+    time is still a lead, not a proof — report the timing and let it stand.
+
+    Args:
+        hours: How far back to look. Default 6.
+    """
+    recorded = fixture_lookup("flag_changes")
+    if recorded is not None:
+        TOOL_CALLS.labels("flag_changes", "fixture").inc()
+        return recorded
+
+    try:
+        from sentinel.rca.clients import flag_client
+
+        since = datetime.utcnow() - timedelta(hours=hours)
+        changes = await flag_client().flag_changes(since=since)
+    except Exception:
+        TOOL_CALLS.labels("flag_changes", "error").inc()
+        return {
+            "error": "flag audit log unavailable",
+            "instruction": "Note that recent flag changes could not be checked.",
+        }
+
+    TOOL_CALLS.labels("flag_changes", "ok").inc()
+    return {"ref": f"flagchg:{hours}h", "count": len(changes), "changes": changes[:25]}
+
+
+@tool
+async def recent_deployments(service: str | None = None, hours: int = 24) -> dict:
+    """Deployments for a service in a recent window — image-tag changes and rollouts.
+
+    A deploy shortly before the anomaly is a lead. If one correlates, the mitigation is usually a
+    rollback; say "deployed 11 minutes before the alert" and let the evidence stand.
+
+    Args:
+        service: Optional service filter, e.g. 'checkout', 'product-catalog'.
         hours: How far back to look. Default 24.
     """
     recorded = fixture_lookup("recent_deployments")
@@ -34,13 +101,13 @@ async def recent_deployments(service: str | None = None, hours: int = 24) -> dic
         from sentinel.rca.clients import deploy_client
 
         since = datetime.utcnow() - timedelta(hours=hours)
-        events = await deploy_client().list_changes(tenant_id=current_tenant(), service=service, since=since)
+        events = await deploy_client().list_deploys(service=service, since=since)
     except Exception as exc:
         TOOL_CALLS.labels("recent_deployments", "error").inc()
         log.warning("deploy_lookup_failed", error=type(exc).__name__)
         return {
             "error": "deployment service unavailable",
-            "instruction": "Note that recent changes could not be checked.",
+            "instruction": "Note that recent deployments could not be checked.",
         }
 
     TOOL_CALLS.labels("recent_deployments", "ok").inc()
@@ -52,59 +119,36 @@ async def recent_deployments(service: str | None = None, hours: int = 24) -> dic
 
 
 @tool
-async def corporate_actions(index_id: str, days: int = 5) -> dict:
-    """Corporate actions affecting an index's constituents in a recent window.
+async def incident_history(limit: int = 10) -> dict:
+    """Recent incidents from the platform's incident log.
 
-    Dividends, splits, spin-offs and their processing status. Unprocessed or mis-timed corporate
-    actions are one of the most common causes of divisor and index-value anomalies.
+    On this platform the log records the fault scenario that was run and when — the scheduled
+    fault-injection events. Use it to check whether the current symptom matches a scenario that
+    is running or recently ran.
 
     Args:
-        index_id: The index ticker, e.g. 'EU_TECH_50'.
-        days: Lookback window in days. Default 5.
+        limit: How many recent incidents to return. Default 10.
     """
-    recorded = fixture_lookup("corporate_actions")
+    recorded = fixture_lookup("incident_history")
     if recorded is not None:
-        TOOL_CALLS.labels("corporate_actions", "fixture").inc()
+        TOOL_CALLS.labels("incident_history", "fixture").inc()
         return recorded
 
     try:
-        from sentinel.rca.clients import reference_data_client
+        from sentinel.rca.clients import incident_log_client
 
-        actions = await reference_data_client().corporate_actions(
-            tenant_id=current_tenant(), index_id=index_id, days=days
-        )
+        incidents = await incident_log_client().recent_incidents(limit=min(limit, 50))
     except Exception:
-        TOOL_CALLS.labels("corporate_actions", "error").inc()
+        TOOL_CALLS.labels("incident_history", "error").inc()
         return {
-            "error": "reference data unavailable",
-            "instruction": "Note that corporate actions could not be checked.",
+            "error": "incident log unavailable",
+            "instruction": "Note that the incident log could not be checked.",
         }
 
-    TOOL_CALLS.labels("corporate_actions", "ok").inc()
-    return {"ref": f"ca:{index_id}:{days}d", "count": len(actions), "actions": actions[:25]}
-
-
-@tool
-async def feed_status(feed_name: str | None = None) -> dict:
-    """Current health of upstream data feeds: arrival times, lag and completeness.
-
-    This reads live state, so its output is never cached — see `core/cache.LIVE_TOOLS`.
-
-    Args:
-        feed_name: Optional feed filter. Omit for a platform-wide view.
-    """
-    recorded = fixture_lookup("feed_status")
-    if recorded is not None:
-        TOOL_CALLS.labels("feed_status", "fixture").inc()
-        return recorded
-
-    try:
-        from sentinel.rca.clients import monitor_client
-
-        status = await monitor_client().feed_health(tenant_id=current_tenant(), feed=feed_name)
-    except Exception:
-        TOOL_CALLS.labels("feed_status", "error").inc()
-        return {"error": "monitoring unavailable", "instruction": "Note that live feed health could not be checked."}
-
-    TOOL_CALLS.labels("feed_status", "ok").inc()
-    return {"ref": f"feed:{feed_name or 'all'}", "status": status}
+    TOOL_CALLS.labels("incident_history", "ok").inc()
+    return {
+        "ref": f"inclog:{limit}",
+        "count": len(incidents),
+        "incidents": incidents[:limit],
+        "tenant": current_tenant(),
+    }
