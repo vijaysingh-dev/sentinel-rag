@@ -23,7 +23,7 @@ from sentinel.core.resilience import CircuitBreaker
 
 BREAKERS: dict[str, CircuitBreaker] = {
     name: CircuitBreaker(name, settings.breaker_threshold, settings.breaker_cooldown_s)
-    for name in ("knowledge", "data", "change")
+    for name in ("knowledge", "metrics", "tracing", "change")
 }
 
 

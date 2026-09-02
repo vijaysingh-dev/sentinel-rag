@@ -2,9 +2,11 @@
 
 Two separate pools, and the separation is the point:
 
-* **Warehouse pool** — connects as a role with SELECT-only grants. This is the real guarantee
-  behind `tools/warehouse.py`; the SQL validation there is defence in depth on top of it. If the
-  grant is right, a prompt injection that defeats every parser check still cannot write.
+* **Warehouse pool** — connects as a role with SELECT-only grants. Dormant since ADR-027 moved
+  the agent's numeric evidence from a SQL warehouse to Prometheus (`tools/metrics.py`), but kept
+  intact: if a SQL warehouse tool is wired back in for a use the metrics API cannot serve, this
+  is the layer that guarantees it is read-only — the query validation is only defence in depth on
+  top of the grant.
 * **Checkpoint pool** — Postgres-backed LangGraph checkpointer, so an interrupted run survives a
   restart and a human can approve it hours later from a different process.
 """

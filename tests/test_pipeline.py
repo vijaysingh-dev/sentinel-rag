@@ -94,7 +94,7 @@ def test_retrieval_degrades_to_lexical_when_embedding_fails(store):
             raise RuntimeError("embedding service down")
 
     pipeline = RetrievalPipeline(store=store, embedder=BrokenEmbedder(), reranker=None, use_cache=False)
-    results = pipeline.retrieve("restart procedure drain queue", roles=["admin"])
+    results = pipeline.retrieve("checkout runbook upstream dependencies", roles=["admin"])
 
     assert results.mode == "bm25_only"
     assert results.chunks
@@ -102,7 +102,7 @@ def test_retrieval_degrades_to_lexical_when_embedding_fails(store):
 
 def test_context_budget_is_respected(store, embedder):
     pipeline = RetrievalPipeline(store=store, embedder=embedder, reranker=None, use_cache=False)
-    results = pipeline.retrieve("restart divisor feed incident", roles=["admin"], context_budget_tokens=12)
+    results = pipeline.retrieve("checkout payment incident metrics", roles=["admin"], context_budget_tokens=12)
 
     total = sum(c.chunk.token_count for c in results.chunks)
     assert total <= 12
@@ -112,16 +112,17 @@ def test_budget_detects_repeated_identical_calls():
     from sentinel.core.resilience import Budget, BudgetExceeded
 
     budget = Budget()
-    budget.record_call("search_knowledge", {"query": "divisor"})
+    budget.record_call("search_knowledge", {"query": "checkout errors"})
     with pytest.raises(BudgetExceeded):
-        budget.record_call("search_knowledge", {"query": "divisor"})
+        budget.record_call("search_knowledge", {"query": "checkout errors"})
 
 
 def test_live_tools_are_never_cacheable():
     from sentinel.core.cache import is_cacheable
 
     assert is_cacheable({"search_knowledge"})
-    assert not is_cacheable({"search_knowledge", "feed_status"})
+    assert not is_cacheable({"search_knowledge", "current_flags"})
+    assert not is_cacheable({"search_knowledge", "query_prometheus"})
     assert not is_cacheable({"kafka_lag"})
 
 

@@ -56,16 +56,18 @@ def _format(results: Any) -> list[dict]:
 
 @tool
 async def search_knowledge(query: str, doc_type: str | None = None) -> list[dict]:
-    """Search operational runbooks, index methodology documents and resolved past incidents.
+    """Search operational runbooks, architecture and design docs, and resolved past incidents.
 
     Search by symptom and by mechanism separately; they retrieve different documents. Cite the
     returned `ref` for any claim you base on a result.
 
     Args:
         query: Natural-language description of what you need, for example
-            'divisor not adjusted after special dividend'.
-        doc_type: Optional filter — one of 'runbook', 'methodology', 'incident', 'factsheet'.
-            Use 'incident' when you want to know whether this has happened before.
+            'checkout errors at the payment step' or 'why is otel-collector excluded from the
+            health rollup'.
+        doc_type: Optional filter — one of 'runbook', 'incident', 'adr', 'architecture',
+            'glossary', 'oncall', 'reference'. Use 'incident' to check whether this has happened
+            before, 'adr' for a design rationale.
     """
     recorded = fixture_lookup("search_knowledge")
     if recorded is not None:

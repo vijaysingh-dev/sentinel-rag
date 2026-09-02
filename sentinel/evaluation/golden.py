@@ -85,11 +85,11 @@ def check_coverage(examples: list[GoldenExample]) -> dict[str, Any]:
     }
 
 
-GENERATE_PROMPT = """You are building an evaluation set for a documentation assistant serving a
-financial index calculation platform.
+GENERATE_PROMPT = """You are building an evaluation set for an incident-response assistant serving
+a microservice e-commerce platform observed with OpenTelemetry.
 
-Read this document chunk and write {n} questions an engineer or support analyst would realistically
-ask that this chunk answers.
+Read this document chunk and write {n} questions an on-call engineer would realistically ask that
+this chunk answers.
 
 Rules:
 - Ask the way a person actually types: short, sometimes with a typo, sometimes using a synonym the

@@ -5,9 +5,9 @@ enforcement that survives six months of prompt edits is the route-accuracy evalu
 `tests/test_trajectory.py` — a constraint you can only assert in a test is a constraint you do not
 have.
 
-Parallel dispatch is the default early in an investigation: knowledge, data and change are
-independent lines of enquiry, and running them concurrently is why the state reducers in
-`state.py` exist.
+Parallel dispatch is the default early in an investigation: knowledge, metrics, tracing and
+change are independent lines of enquiry, and running them concurrently is why the state reducers
+in `state.py` exist.
 """
 
 from __future__ import annotations
@@ -25,7 +25,12 @@ from sentinel.rca.prompts import load_prompt
 from sentinel.rca.resilience import budget_exceeded, structured_with_repair
 from sentinel.rca.state import SentinelState
 
-AGENT_NODES = {"knowledge": "knowledge_node", "data": "data_node", "change": "change_node"}
+AGENT_NODES = {
+    "knowledge": "knowledge_node",
+    "metrics": "metrics_node",
+    "tracing": "tracing_node",
+    "change": "change_node",
+}
 
 
 class RouteDecision(BaseModel):
@@ -34,7 +39,7 @@ class RouteDecision(BaseModel):
     # Reasoning first: the model writes its justification before committing to a route, which
     # measurably improves routing quality over emitting the decision first.
     reasoning: str = Field(max_length=400)
-    next_agents: list[Literal["knowledge", "data", "change"]] = Field(
+    next_agents: list[Literal["knowledge", "metrics", "tracing", "change"]] = Field(
         default_factory=list,
         description="Specialists to run concurrently this round. Empty when ready to draft.",
     )
@@ -68,7 +73,7 @@ async def supervisor_node(state: SentinelState) -> Command:
             update={"degraded": True, "errors": [{"node": "supervisor", "kind": reason}]},
         )
 
-    prompt = load_prompt("supervisor", "v6").format(
+    prompt = load_prompt("supervisor", "v7").format(
         anomaly=json.dumps(state.get("anomaly", {}), indent=2, default=str),
         evidence_count=len(state.get("evidence", [])),
         evidence_digest=_digest(state),
