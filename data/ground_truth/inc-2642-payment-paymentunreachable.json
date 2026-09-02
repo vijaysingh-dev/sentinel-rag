@@ -1,0 +1,31 @@
+{
+  "headings": [
+    "Summary",
+    "Customer impact",
+    "Timeline",
+    "Root cause",
+    "Contributing factors",
+    "What went well",
+    "Action items",
+    "Detection signature"
+  ],
+  "tables": [
+    [
+      [
+        "Time",
+        "Event"
+      ]
+    ]
+  ],
+  "blocks": [
+    "Summary",
+    "Customer impact",
+    "Timeline",
+    "Root cause"
+  ],
+  "must_contain": [
+    "paymentUnreachable",
+    "payment",
+    "checkout sees connection-refused to payment"
+  ]
+}
