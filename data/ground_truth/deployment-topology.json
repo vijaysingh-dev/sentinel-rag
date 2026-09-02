@@ -1,0 +1,19 @@
+{
+  "tables": [],
+  "blocks": [
+    "Astroshop dependency and tier model",
+    "A public astronomy e-commerce storefront. Customers browse a product catalog, add items to a cart, and check out through a synchronous order pipeline. Traffic is synthetic, driven by the load generator; faults are injected through flagd. Telemetry is OpenTelemetry throughout, scraped by Prometheus and traced through Jaeger.",
+    "Tiers",
+    "Tier 0 is the customer-facing critical path",
+    "Reading the graph",
+    "The table on the following page lists every service",
+    "Fault ownership",
+    "Service dependency table"
+  ],
+  "headings": [
+    "Tiers",
+    "Reading the graph",
+    "Fault ownership",
+    "Service dependency table"
+  ]
+}

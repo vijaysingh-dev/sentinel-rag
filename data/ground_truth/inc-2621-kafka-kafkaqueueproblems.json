@@ -1,0 +1,31 @@
+{
+  "headings": [
+    "Summary",
+    "Customer impact",
+    "Timeline",
+    "Root cause",
+    "Contributing factors",
+    "What went well",
+    "Action items",
+    "Detection signature"
+  ],
+  "tables": [
+    [
+      [
+        "Time",
+        "Event"
+      ]
+    ]
+  ],
+  "blocks": [
+    "Summary",
+    "Customer impact",
+    "Timeline",
+    "Root cause"
+  ],
+  "must_contain": [
+    "kafkaQueueProblems",
+    "kafka",
+    "kafka_consumergroup_lag climbing for accounting and fraud-detection"
+  ]
+}

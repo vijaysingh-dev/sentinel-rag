@@ -1,0 +1,291 @@
+# The otel-demo platform, as Sentinel's corpus generators see it.
+#
+# This is the single source of truth for every document generator under scripts/corpus/. It is
+# curated, not scraped: the dependency edges and fault modes are lifted verbatim from
+# app/otel-demo/compose.yaml and app/otel-demo/src/flagd/demo.flagd.json, but the SLOs, owning
+# teams, runbook steps and escalation paths are the operational layer the demo does not ship and
+# that a real platform always has. Editing this file and re-running `make corpus` is the main
+# way to reshape what the RAG pipeline and the RCA agent are tested against.
+#
+# Why a hand-curated model rather than parsing compose.yaml at generation time: the generators
+# need prose-grade facts (what breaks, who to page, what "healthy" means) that a compose file
+# does not carry. Keeping them here, reviewed like code, means "why does the runbook say to page
+# the Checkout team?" is answered by pointing at a line, the same principle as config/acl_rules.yaml.
+
+platform:
+  name: Astroshop
+  summary: >
+    A public astronomy e-commerce storefront. Customers browse a product catalog, add items to a
+    cart, and check out through a synchronous order pipeline. Traffic is synthetic, driven by the
+    load generator; faults are injected through flagd. Telemetry is OpenTelemetry throughout,
+    scraped by Prometheus and traced through Jaeger.
+  slo_window_days: 28
+  # RED = Rate, Errors, Duration — the three signals every request-serving service is measured on.
+  golden_signals: [request_rate, error_rate, duration_p95, duration_p99]
+
+teams:
+  storefront:   { pager: "PD-STOREFRONT", slack: "#astroshop-storefront", owns: [frontend, frontend-proxy, image-provider] }
+  checkout:     { pager: "PD-CHECKOUT",   slack: "#astroshop-checkout",   owns: [checkout, cart, payment, shipping, currency, email] }
+  catalog:      { pager: "PD-CATALOG",    slack: "#astroshop-catalog",    owns: [product-catalog, recommendation, ad, quote] }
+  data:         { pager: "PD-DATA",       slack: "#astroshop-data",       owns: [accounting, fraud-detection, kafka] }
+  platform-eng: { pager: "PD-PLATFORM",   slack: "#astroshop-platform",   owns: [otel-collector, flagd, valkey-cart, astronomy-db] }
+
+# ---------------------------------------------------------------------------- services
+#
+# tier: 0 = customer-facing critical path, 1 = supporting synchronous, 2 = async / back office.
+# depends_on: business dependencies only. otel-collector and flagd are omitted deliberately —
+# every service depends on them, so including them collapses the graph (same reasoning as
+# app/system-monitor/tree.yaml).
+services:
+  frontend:
+    tier: 0
+    team: storefront
+    language: TypeScript
+    runtime: Next.js
+    role: Serves the web storefront and the JSON API the browser calls. Fans out to every product path.
+    depends_on: [ad, cart, checkout, currency, product-catalog, quote, recommendation, shipping, image-provider]
+    slo: { availability: "99.9%", latency_p95_ms: 800, latency_p99_ms: 1500 }
+    key_metrics:
+      - http_server_request_duration_seconds        # histogram, by route + status
+      - http_server_active_requests
+    faults:
+      - flag: imageSlowLoad
+        effect: Product images take seconds to load; page render blocks on them.
+        signature: frontend duration_p95 up, downstream services healthy, image-provider latency up.
+
+  frontend-proxy:
+    tier: 0
+    team: storefront
+    language: C++
+    runtime: Envoy
+    role: Edge proxy. All external traffic and the flagd-ui and telemetry-docs routes pass through it.
+    depends_on: [frontend]
+    slo: { availability: "99.95%", latency_p95_ms: 900 }
+    key_metrics: [envoy_http_downstream_rq_total, envoy_http_downstream_rq_time]
+    faults: []
+
+  cart:
+    tier: 0
+    team: checkout
+    language: "C#"
+    runtime: ".NET"
+    role: Holds the customer's cart. Backed by valkey-cart (Redis-compatible). No container healthcheck — liveness is process-only.
+    depends_on: [valkey-cart]
+    slo: { availability: "99.9%", latency_p95_ms: 150 }
+    key_metrics: [rpc_server_duration_milliseconds, app_cart_items_total]
+    faults:
+      - flag: cartFailure
+        effect: AddItem and GetCart fail for a configurable percentage of calls.
+        signature: cart error_rate up by the configured fraction; checkout error_rate up in step; valkey-cart healthy.
+      - flag: failedReadinessProbe
+        effect: Readiness probe fails; orchestrator takes the pod out of rotation while the process keeps running.
+        signature: cart request_rate drops to zero with no error spike; "no healthy upstream" from the proxy.
+
+  checkout:
+    tier: 0
+    team: checkout
+    language: Go
+    role: The synchronous order pipeline. Calls cart, currency, product-catalog, shipping, payment, then email, in order.
+    depends_on: [cart, currency, email, payment, product-catalog, shipping]
+    slo: { availability: "99.5%", latency_p95_ms: 1200, latency_p99_ms: 2500 }
+    key_metrics: [rpc_server_duration_milliseconds, app_orders_total, app_orders_failed_total]
+    faults: []
+    notes: >
+      Checkout has no fault flag of its own. Every checkout incident is a downstream failure
+      surfacing here — which makes it the classic "the alert fires on checkout but the cause is
+      three hops away" case the RCA agent exists for.
+
+  payment:
+    tier: 0
+    team: checkout
+    language: JavaScript
+    runtime: Node.js
+    role: Charges the card. Pure compute stub, no real PSP. The last synchronous call before the order is confirmed.
+    depends_on: []
+    slo: { availability: "99.9%", latency_p95_ms: 200 }
+    key_metrics: [rpc_server_duration_milliseconds, app_payment_transactions_total]
+    faults:
+      - flag: paymentFailure
+        effect: charge() throws for n% of requests.
+        signature: payment error_rate = n%; checkout app_orders_failed_total up; no latency change.
+      - flag: paymentUnreachable
+        effect: The service refuses all connections.
+        signature: checkout sees connection-refused to payment; payment scrape target down; 100% checkout failure.
+
+  shipping:
+    tier: 1
+    team: checkout
+    language: Rust
+    role: Quotes a shipping cost and books the shipment. Called by checkout.
+    depends_on: [quote]
+    slo: { availability: "99.5%", latency_p95_ms: 500 }
+    key_metrics: [rpc_server_duration_milliseconds]
+    faults:
+      - flag: intlShippingSlowdown
+        effect: International destinations get a multi-second artificial delay.
+        signature: shipping duration_p99 up only for international orders; checkout p99 up; error rates flat.
+
+  currency:
+    tier: 1
+    team: checkout
+    language: "C++"
+    role: Converts prices between currencies. Called by frontend and checkout. Pure compute, no dependencies.
+    depends_on: []
+    slo: { availability: "99.95%", latency_p95_ms: 50 }
+    key_metrics: [rpc_server_duration_milliseconds]
+    faults: []
+
+  email:
+    tier: 2
+    team: checkout
+    language: Ruby
+    role: Sends the order-confirmation email. Called by checkout after the order is committed, best-effort.
+    depends_on: []
+    slo: { availability: "99%", latency_p95_ms: 1000 }
+    key_metrics: [app_email_sent_total, process_resident_memory_bytes]
+    faults:
+      - flag: emailMemoryLeak
+        effect: RSS climbs steadily until the runtime OOMs and restarts.
+        signature: email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort).
+
+  product-catalog:
+    tier: 0
+    team: catalog
+    language: Go
+    role: The product database. Shared dependency of frontend and recommendation. Backed by astronomy-db.
+    depends_on: [astronomy-db]
+    slo: { availability: "99.9%", latency_p95_ms: 100 }
+    key_metrics: [rpc_server_duration_milliseconds, app_products_returned_total]
+    faults:
+      - flag: productCatalogFailure
+        effect: GetProduct fails for one specific product id; ListProducts is unaffected.
+        signature: product-catalog error_rate low but non-zero; errors correlate with one product; frontend PDP errors for that product only.
+
+  recommendation:
+    tier: 1
+    team: catalog
+    language: Python
+    role: Returns "you may also like" products. Calls product-catalog. Has an in-process cache.
+    depends_on: [product-catalog]
+    slo: { availability: "99%", latency_p95_ms: 300 }
+    key_metrics: [rpc_server_duration_milliseconds, app_recommendations_cache_hit_ratio]
+    faults:
+      - flag: recommendationCacheFailure
+        effect: The cache never hits, so every request fans out to product-catalog; memory also grows unbounded.
+        signature: recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing.
+
+  ad:
+    tier: 1
+    team: catalog
+    language: Java
+    role: Serves a contextual ad on the product page. Leaf service under frontend.
+    depends_on: []
+    slo: { availability: "99%", latency_p95_ms: 250 }
+    key_metrics: [rpc_server_duration_milliseconds, jvm_gc_duration_seconds, process_cpu_utilization]
+    faults:
+      - flag: adFailure
+        effect: GetAds throws for every request.
+        signature: ad error_rate 100%; frontend degrades gracefully (ad slot empty), no cascade past frontend.
+      - flag: adHighCpu
+        effect: A background thread pins CPU.
+        signature: ad process_cpu_utilization saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
+      - flag: adManualGc
+        effect: Forced full GC pauses on a loop.
+        signature: ad jvm_gc_duration_seconds spikes periodically; sawtooth latency; correlates with GC, not load.
+
+  quote:
+    tier: 1
+    team: catalog
+    language: PHP
+    role: Computes a shipping quote (weight/size -> price). Called by shipping.
+    depends_on: []
+    slo: { availability: "99.5%", latency_p95_ms: 200 }
+    key_metrics: [rpc_server_duration_milliseconds]
+    faults: []
+
+  image-provider:
+    tier: 1
+    team: storefront
+    language: Nginx
+    role: Static image host for product photos. Served through frontend-proxy.
+    depends_on: []
+    slo: { availability: "99.9%", latency_p95_ms: 100 }
+    key_metrics: [nginx_http_requests_total]
+    faults: []
+
+  accounting:
+    tier: 2
+    team: data
+    language: "C#"
+    runtime: ".NET"
+    role: Consumes the orders topic from Kafka and writes ledger entries. Fully asynchronous.
+    depends_on: [kafka]
+    slo: { availability: "99%", freshness_lag_s: 60 }
+    key_metrics: [kafka_consumer_lag, messages_processed_total]
+    faults: []
+
+  fraud-detection:
+    tier: 2
+    team: data
+    language: Kotlin
+    runtime: JVM
+    role: Consumes the orders topic and scores each order for fraud. Asynchronous, does not gate checkout.
+    depends_on: [kafka]
+    slo: { availability: "99%", freshness_lag_s: 120 }
+    key_metrics: [kafka_consumer_lag, orders_scored_total]
+    faults: []
+
+  kafka:
+    tier: 1
+    team: data
+    language: Java
+    role: The order event bus. checkout produces to it; accounting and fraud-detection consume.
+    depends_on: []
+    slo: { availability: "99.9%", produce_latency_p95_ms: 100 }
+    key_metrics: [kafka_server_brokertopicmetrics_messagesin_total, kafka_consumergroup_lag]
+    faults:
+      - flag: kafkaQueueProblems
+        effect: Broker is overloaded and consumers are given an added delay, so lag spikes.
+        signature: kafka_consumergroup_lag climbing for accounting and fraud-detection; checkout produce latency up; storefront unaffected.
+
+  valkey-cart:
+    tier: 1
+    team: platform-eng
+    language: C
+    runtime: Valkey
+    role: In-memory store behind cart. Redis wire protocol.
+    depends_on: []
+    slo: { availability: "99.95%", latency_p95_ms: 5 }
+    key_metrics: [redis_commands_processed_total, redis_memory_used_bytes]
+    faults: []
+
+  astronomy-db:
+    tier: 1
+    team: platform-eng
+    language: SQL
+    runtime: PostgreSQL
+    role: Relational store behind product-catalog.
+    depends_on: []
+    slo: { availability: "99.9%", latency_p95_ms: 20 }
+    key_metrics: [pg_stat_database_xact_commit, pg_stat_activity_count]
+    faults: []
+
+  otel-collector:
+    tier: 1
+    team: platform-eng
+    language: Go
+    role: Receives OTLP from every service, batches, and exports to Prometheus and Jaeger. Excluded from the health rollup by design.
+    depends_on: []
+    slo: { availability: "99.95%" }
+    key_metrics: [otelcol_receiver_accepted_spans, otelcol_exporter_send_failed_spans]
+    faults: []
+
+  flagd:
+    tier: 1
+    team: platform-eng
+    language: Go
+    role: Feature-flag daemon. Reads demo.flagd.json and serves flag evaluations. The fault-injection control plane.
+    depends_on: []
+    slo: { availability: "99.95%" }
+    key_metrics: [flagd_flag_evaluations_total]
+    faults: []

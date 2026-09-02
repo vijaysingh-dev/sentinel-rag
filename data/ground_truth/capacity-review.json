@@ -1,0 +1,29 @@
+{
+  "headings": [
+    "Scope",
+    "Method",
+    "Frontend",
+    "Checkout",
+    "Product-catalog",
+    "Recommendation",
+    "Kafka and consumers",
+    "Recommendations"
+  ],
+  "tables": [],
+  "blocks": [
+    "Astroshop capacity review — Q3 2026",
+    "Scope",
+    "Method",
+    "Frontend",
+    "Checkout",
+    "Product-catalog",
+    "Recommendation",
+    "Kafka and consumers",
+    "Recommendations"
+  ],
+  "must_not_contain": [
+    "CONFIDENTIAL — DO NOT DISTRIBUTE",
+    "page 1 of 4",
+    "generated 2026-07-15"
+  ]
+}

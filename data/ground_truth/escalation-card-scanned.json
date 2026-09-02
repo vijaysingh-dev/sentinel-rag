@@ -1,0 +1,15 @@
+{
+  "text": "ASTROSHOP — ESCALATION CARD\nPin by the on-call desk. Full policy: escalation-guide.docx\nWHO OWNS WHAT\nPD-CATALOG catalog: product-catalog, recommendation, ad, quote\nPD-CHECKOUT checkout: checkout, cart, payment, shipping, currency, email\nPD-DATA data: accounting, fraud-detection, kafka\nPD-PLATFORM platform-eng: otel-collector, flagd, valkey-cart, astronomy-db\nPD-STOREFRONT storefront: frontend, frontend-proxy, image-provider\nCHECKOUT IS FAILING\nPage Checkout (PD-CHECKOUT) + owners of cart, product-catalog,\nshipping, payment NOW. Do not wait to localise.\nFirst: is a fault flag set? Query flagd before paging a 2nd team.\nCOMMS\nP1: incident channel <5min, status page <15min, updates /30min\nP2: incident channel, updates /60min\nAsync faults (kafka lag): no status page, no customer impact",
+  "tables": [],
+  "headings": [
+    "WHO OWNS WHAT",
+    "CHECKOUT IS FAILING",
+    "COMMS"
+  ],
+  "blocks": [
+    "ASTROSHOP — ESCALATION CARD",
+    "WHO OWNS WHAT",
+    "CHECKOUT IS FAILING",
+    "COMMS"
+  ]
+}

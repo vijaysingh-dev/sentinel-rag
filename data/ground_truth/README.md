@@ -43,3 +43,18 @@ single-column PDF and those documents carry no signal.
 
 The practical route is to run the strongest available parser, then correct its output by hand.
 Faster than transcribing from scratch, and the corrections are exactly the failures worth measuring.
+
+<!-- corpus-provenance -->
+## Provenance of the generated files
+
+Every `<stem>.json` in this directory is produced by `scripts/corpus/gen_ground_truth.py` from
+the same model (`scripts/corpus/services.yaml`) that generates the documents in `knowledge/`, so
+document and truth stay in lockstep — edit the model, run `make corpus`, both update.
+
+The one genuinely hand-labelled file is `escalation-card-scanned.json`: that document is an image
+with no machine-readable source, so its `text` is transcribed by hand (`SCANNED_CARD_TEXT` in the
+generator) and is the human reference the OCR parsers are scored against.
+
+Two non-standard keys appear in some files — `must_contain` and `must_not_contain` — used by
+`tests/` to assert boilerplate (running headers) is dropped and key facts survive. `parsing_eval.py`
+ignores them; it reads only `text`, `tables`, `blocks`, `headings`.
