@@ -10,21 +10,21 @@ from sentinel.chunking.base import get_chunker
 from sentinel.core.types import Block, BlockType, ParsedDocument, ParseMetrics, Table
 from sentinel.parsing.quality import score_parse
 
-MARKDOWN = """# ICE Operations
+MARKDOWN = """# Checkout Operations
 
 ## Restart Procedure
 
-Drain the input queue before restarting. Wait for in-flight calculations to complete.
+Drain in-flight orders before restarting. Wait for open checkout spans to complete.
 
 ### Rolling Restart
 
-Restart one region at a time. Never restart all regions during market hours.
+Restart one replica at a time. Never restart all replicas during a peak-traffic window.
 
 ## Thresholds
 
 | metric | warning | critical |
 | --- | --- | --- |
-| feed lag | 90s | 300s |
+| error ratio | 1% | 5% |
 """
 
 
@@ -32,7 +32,7 @@ Restart one region at a time. Never restart all regions during market hours.
 def markdown_doc(tmp_path: Path) -> ParsedDocument:
     from sentinel.parsing.local_parser import LocalParser
 
-    path = tmp_path / "ice_operations.md"
+    path = tmp_path / "checkout_operations.md"
     path.write_text(MARKDOWN, encoding="utf-8")
     return LocalParser().parse(path, doc_type="runbook")
 
@@ -40,7 +40,7 @@ def markdown_doc(tmp_path: Path) -> ParsedDocument:
 def test_markdown_headings_are_extracted(markdown_doc):
     headings = [b for b in markdown_doc.blocks if b.type is BlockType.HEADING]
     assert [h.text for h in headings] == [
-        "ICE Operations",
+        "Checkout Operations",
         "Restart Procedure",
         "Rolling Restart",
         "Thresholds",
@@ -56,7 +56,7 @@ def test_structural_chunker_prefixes_heading_path(markdown_doc):
     assert nested, "expected chunks under the nested heading"
     # The prefix is what turns an unretrievable fragment into a findable one.
     assert "Rolling Restart" in nested[0].embed_text
-    assert "ICE Operations" in nested[0].embed_text
+    assert "Checkout Operations" in nested[0].embed_text
 
 
 def test_runbook_chunker_returns_whole_procedure(markdown_doc):

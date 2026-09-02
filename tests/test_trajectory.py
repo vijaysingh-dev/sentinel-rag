@@ -21,7 +21,15 @@ def test_supervisor_holds_no_tools():
     from sentinel.rca.agents import supervisor
 
     source = inspect.getsource(supervisor)
-    for tool in ("search_knowledge", "run_readonly_sql", "recent_deployments", "corporate_actions", "feed_status"):
+    for tool in (
+        "search_knowledge",
+        "query_prometheus",
+        "find_traces",
+        "current_flags",
+        "flag_changes",
+        "recent_deployments",
+        "incident_history",
+    ):
         assert tool not in source, f"supervisor must not reference the {tool} tool"
 
 
@@ -39,47 +47,50 @@ def test_specialists_have_disjoint_tool_scopes():
             assert tool.name not in seen, f"{tool.name} is held by both {seen.get(tool.name)} and {specialist}"
             seen[tool.name] = specialist
 
-    assert seen["run_readonly_sql"] == "data"
+    assert seen["query_prometheus"] == "metrics"
+    assert seen["find_traces"] == "tracing"
     assert seen["search_knowledge"] == "knowledge"
 
 
-def test_sql_validator_rejects_writes():
-    from sentinel.rca.tools.warehouse import UnsafeQuery, validate_sql
-
-    for statement in (
-        "DELETE FROM index_values",
-        "UPDATE index_values SET close = 0",
-        "DROP TABLE index_values",
-        "SELECT 1; DROP TABLE index_values",
-        "INSERT INTO index_values VALUES (1)",
-    ):
-        with pytest.raises(UnsafeQuery):
-            validate_sql(statement)
-
-
-def test_sql_validator_forces_a_row_limit():
-    from sentinel.rca.tools.warehouse import validate_sql
-
-    result = validate_sql("SELECT * FROM index_values WHERE trade_date = '2026-03-04'")
-    assert "LIMIT" in result.upper()
-
-
-def test_sql_validator_accepts_a_bounded_select():
-    from sentinel.rca.tools.warehouse import validate_sql
-
-    query = "SELECT index_id, close FROM index_values WHERE trade_date = '2026-03-04' LIMIT 10"
-    assert validate_sql(query) == query
-
-
-def test_sql_validator_uses_a_parser_not_a_regex():
-    """A comment or a string literal must not defeat the check.
-
-    This is why `sqlglot` parses the statement rather than a regex scanning for keywords.
-    """
-    from sentinel.rca.tools.warehouse import UnsafeQuery, validate_sql
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "node_filesystem_free_bytes",  # node_ is not a platform prefix
+        "some_secret_gauge",
+        "container_memory_usage_bytes",  # cAdvisor, not exposed here
+        'label_replace(up, "x", "$1", "job", "(.*)")',  # forbidden function
+    ],
+)
+def test_promql_validator_rejects_unknown_metrics_and_forbidden_funcs(expr):
+    """A metric outside the platform allowlist, or a forbidden function, is rejected unrun."""
+    from sentinel.rca.tools.metrics import UnsafeQuery, validate_promql
 
     with pytest.raises(UnsafeQuery):
-        validate_sql("SELECT 1 /* harmless */; DELETE FROM index_values")
+        validate_promql(expr, range_hours=0.5)
+
+
+def test_promql_validator_rejects_an_unbounded_or_wide_range():
+    from sentinel.rca.tools.metrics import UnsafeQuery, validate_promql
+
+    with pytest.raises(UnsafeQuery):
+        validate_promql("rate(rpc_server_duration_milliseconds_count[5m])", range_hours=48)
+
+
+def test_promql_validator_accepts_an_allowlisted_metric():
+    from sentinel.rca.tools.metrics import validate_promql
+
+    expr = (
+        "sum(rate(rpc_server_duration_milliseconds_count"
+        '{service_name="checkout", rpc_grpc_status_code!="0"}[5m]))'
+    )
+    assert validate_promql(expr, range_hours=0.5) == expr
+
+
+def test_promql_validator_rejects_multiple_expressions():
+    from sentinel.rca.tools.metrics import UnsafeQuery, validate_promql
+
+    with pytest.raises(UnsafeQuery):
+        validate_promql("up; up", range_hours=0.5)
 
 
 def test_unreferenced_claims_are_dropped():
@@ -88,11 +99,11 @@ def test_unreferenced_claims_are_dropped():
 
     from sentinel.rca.agents.common import observed_refs
 
-    messages = [ToolMessage(content='{"ref": "sql:abc123", "rows": 4}', tool_call_id="1")]
+    messages = [ToolMessage(content='{"ref": "promql:abc123", "result": {}}', tool_call_id="1")]
     refs = observed_refs(messages)
 
-    assert "sql:abc123" in refs
-    assert "sql:fabricated" not in refs
+    assert "promql:abc123" in refs
+    assert "promql:fabricated" not in refs
 
 
 def test_degraded_runs_cannot_claim_high_confidence():
@@ -122,6 +133,6 @@ def test_safety_check_flags_unapproved_publish():
 def test_safety_check_flags_fabricated_reference():
     from sentinel.evaluation.agent_eval import check_safety
 
-    state = {"evidence": [{"source_ref": "sql:invented"}], "outcome": "running"}
-    violations = check_safety(state, {"sql:real"})
+    state = {"evidence": [{"source_ref": "promql:invented"}], "outcome": "running"}
+    violations = check_safety(state, {"promql:real"})
     assert any(v["kind"] == "fabricated_reference" for v in violations)
