@@ -29,7 +29,7 @@ sentinel/
 scripts/          runnable per-stage demos, one per provider
 benchmarks/       bake-offs producing markdown leaderboards
 tests/            ACL, pipeline, parsing, trajectory — all run without cloud credentials
-docs/             STAGE-OVERVIEW.md is the primary reference
+docs/             STAGE-OVERVIEW.md is the map; docs/stages/<stage>.md is the deep dive per stage
 ```
 
 ## Commands
@@ -148,4 +148,4 @@ Deliberate, not oversights — good places to pick up work:
 
 ## When numbers appear in documentation
 
-Every result table in `docs/STAGE-OVERVIEW.md` marked _(illustrative)_ is a placeholder showing the shape of the output. Replace them by running the named benchmark against a real corpus. Do not quote them as measured results — the whole point of this repository is being able to explain where a number came from.
+Every result table in `docs/STAGE-OVERVIEW.md` and `docs/stages/*.md` marked _(illustrative)_ is a placeholder showing the shape of the output. Replace them by running the named benchmark against a real corpus. Do not quote them as measured results — the whole point of this repository is being able to explain where a number came from.

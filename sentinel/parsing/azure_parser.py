@@ -100,6 +100,11 @@ class AzureDocIntelligenceParser(BaseParser):
         fmt = kwargs.get("format") or detect_format(path)
         started = time.perf_counter()
 
+        # In debug mode, cap analysis at the first N pages. This keeps development runs cheap
+        # (Document Intelligence bills per page) and avoids the surprise that a free-tier resource
+        # silently caps at two pages anyway. Production sends the whole document.
+        page_range = kwargs.get("pages") or self._dev_page_range(path)
+
         try:
             with path.open("rb") as fh:
                 poller = self.client.begin_analyze_document(
@@ -110,6 +115,8 @@ class AzureDocIntelligenceParser(BaseParser):
                     output_content_format=DocumentContentFormat.MARKDOWN,
                     # Figure extraction lets the enrichment step describe diagrams later.
                     features=kwargs.get("features"),
+                    # None -> whole document; "1-2" -> first two pages only (debug mode).
+                    pages=page_range,
                 )
             result = poller.result()
         except HttpResponseError as exc:
@@ -119,6 +126,25 @@ class AzureDocIntelligenceParser(BaseParser):
 
         blocks = self._blocks_from_result(result)
         pages = len(getattr(result, "pages", []) or [])
+        content = getattr(result, "content", "") or ""
+        if page_range:
+            log.warning(
+                "azure_page_limited",
+                path=str(path),
+                pages_analyzed=page_range,
+                reason="debug mode; set debug=false or pass pages= to analyze the whole document",
+            )
+        log.debug(
+            "azure_result",
+            path=str(path),
+            model=self.model,
+            page_range=page_range or "all",
+            pages_returned=pages,
+            markdown_chars=len(content),
+            tables=len(getattr(result, "tables", []) or []),
+            figures=len(getattr(result, "figures", []) or []),
+            paragraphs=len(getattr(result, "paragraphs", []) or []),
+        )
 
         metrics = ParseMetrics(
             provider=self.name,
@@ -138,13 +164,30 @@ class AzureDocIntelligenceParser(BaseParser):
             metrics=metrics,
             doc_type=kwargs.get("doc_type", "page"),
             tenant_id=kwargs.get("tenant_id", "default"),
-            meta={"format": fmt.value, "model": self.model, "raw_markdown": getattr(result, "content", "")[:200_000]},
+            meta={
+                "format": fmt.value,
+                "model": self.model,
+                "page_range": page_range or "all",
+                "raw_markdown": getattr(result, "content", "")[:200_000],
+            },
         )
 
         from sentinel.parsing.quality import score_parse
 
         report = score_parse(doc)
         PARSE_QUALITY.labels(self.name, fmt.value).observe(report.score)
+        log.debug(
+            "quality_components",
+            provider=self.name,
+            path=str(path),
+            score=report.score,
+            text_density=report.text_density,
+            word_validity=report.word_validity,
+            structure=report.structure_score,
+            encoding=report.encoding_score,
+            tables=report.table_score,
+            warnings=report.warnings,
+        )
         log.info(
             "parsed",
             provider=self.name,
@@ -157,6 +200,26 @@ class AzureDocIntelligenceParser(BaseParser):
             duration_s=metrics.duration_s,
         )
         return doc
+
+    @staticmethod
+    def _dev_page_range(path: Path) -> str | None:
+        """``"1-N"`` when debug mode caps analysis, else ``None`` for the whole document.
+
+        Returns None (no cap) whenever the document is already within the limit, so the page-range
+        parameter is only sent when it actually changes behaviour.
+        """
+        from sentinel.core.config import settings
+
+        limit = settings.azure_di_dev_page_limit
+        if not settings.debug or limit <= 0:
+            return None
+        try:
+            from pypdf import PdfReader
+
+            total = len(PdfReader(str(path)).pages)
+        except Exception:
+            total = limit + 1  # unknown length; assume it exceeds the cap
+        return f"1-{limit}" if total > limit else None
 
     async def aparse(self, path: str | Path, **kwargs: Any) -> ParsedDocument:
         """Retries transient failures; the service throttles under burst ingestion."""
