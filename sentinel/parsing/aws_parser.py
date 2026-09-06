@@ -83,14 +83,28 @@ class TextractParser(BaseParser):
         started = time.perf_counter()
 
         page_count = self._page_count(path)
+        size_mb = round(path.stat().st_size / 1024 / 1024, 2)
         # Single-page work stays synchronous to avoid an S3 round trip and job polling.
         if page_count <= 1 and path.stat().st_size < 5 * 1024 * 1024:
+            log.debug("textract_route", path=str(path), route="sync", pages=page_count, size_mb=size_mb)
             blocks_raw = self._analyze_sync(path)
         else:
             if not self.s3_bucket:
                 raise ParseFailure("multi-page Textract requires textract_s3_bucket; the async API reads from S3")
+            log.debug(
+                "textract_route",
+                path=str(path),
+                route="async_s3",
+                pages=page_count,
+                size_mb=size_mb,
+                features=self.features,
+            )
             blocks_raw = self._analyze_async(path)
 
+        kinds: dict[str, int] = {}
+        for b in blocks_raw:
+            kinds[b["BlockType"]] = kinds.get(b["BlockType"], 0) + 1
+        log.debug("textract_response", path=str(path), raw_blocks=len(blocks_raw), block_kinds=kinds)
         blocks = self._build_blocks(blocks_raw)
         pages = max(page_count, self._pages_in_response(blocks_raw))
 
@@ -127,6 +141,18 @@ class TextractParser(BaseParser):
 
         report = score_parse(doc)
         PARSE_QUALITY.labels(self.name, fmt.value).observe(report.score)
+        log.debug(
+            "quality_components",
+            provider=self.name,
+            path=str(path),
+            score=report.score,
+            text_density=report.text_density,
+            word_validity=report.word_validity,
+            structure=report.structure_score,
+            encoding=report.encoding_score,
+            tables=report.table_score,
+            warnings=report.warnings,
+        )
         log.info(
             "parsed",
             provider=self.name,
@@ -209,14 +235,21 @@ class TextractParser(BaseParser):
         table_line_ids = self._ids_inside_tables(raw, by_id)
 
         layout_blocks = [b for b in raw if b["BlockType"].startswith("LAYOUT_")]
-        blocks: list[Block] = (
+        strategy = "layout" if layout_blocks else "lines_fallback"
+        log.debug(
+            "textract_reconstruction",
+            strategy=strategy,
+            layout_elements=len(layout_blocks),
+            reason="LAYOUT feature returned elements" if layout_blocks else "no LAYOUT elements; grouping LINEs by gap",
+        )
+        prose_blocks: list[Block] = (
             self._blocks_from_layout(layout_blocks, by_id, table_line_ids)
             if layout_blocks
             else self._blocks_from_lines(raw, table_line_ids)
         )
-
-        blocks.extend(self._table_blocks(raw, by_id))
-        return blocks
+        table_blocks = self._table_blocks(raw, by_id)
+        log.debug("textract_assembled", prose_blocks=len(prose_blocks), table_blocks=len(table_blocks))
+        return [*prose_blocks, *table_blocks]
 
     def _blocks_from_layout(self, layout_blocks: list[dict], by_id: dict[str, dict], skip_ids: set[str]) -> list[Block]:
         out: list[Block] = []

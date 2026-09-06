@@ -55,7 +55,15 @@ def configure_logging(level: str | None = None, json_output: bool | None = None)
     JSON in production so the log aggregator can index fields; console renderer locally because
     reading JSON by eye at 3am is its own small punishment.
     """
-    level = level or os.getenv("LOG_LEVEL", "INFO")
+    if level is None:
+        # `settings.debug` forces DEBUG; otherwise honour LOG_LEVEL. Import lazily so this module
+        # stays importable before settings are constructed (e.g. in isolated unit tests).
+        try:
+            from sentinel.core.config import settings
+
+            level = settings.effective_log_level
+        except Exception:
+            level = os.getenv("LOG_LEVEL", "INFO")
     json_output = json_output if json_output is not None else not sys.stderr.isatty()
 
     processors: list[Any] = [
