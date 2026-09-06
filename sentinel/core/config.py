@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     azure_doc_intelligence_endpoint: str = ""
     azure_doc_intelligence_key: str = ""
     azure_doc_intelligence_model: str = "prebuilt-layout"
+    # In `debug` mode the Azure parser processes the document in batches of this many pages and
+    # merges the results, instead of sending it whole. Two reasons: a free-tier (F0) Document
+    # Intelligence resource hard-caps analysis at two pages and silently drops the rest, and
+    # per-page billing means an accidental full-corpus run during development is a real bill.
+    # Set to 0 to disable batching even in debug mode. Ignored entirely when `debug` is false.
+    azure_di_dev_page_limit: int = 2
 
     azure_search_endpoint: str = ""
     azure_search_key: str = ""
@@ -130,7 +136,16 @@ class Settings(BaseSettings):
     langfuse_host: str = "http://localhost:3000"
     otel_endpoint: str = ""
     log_level: str = "INFO"
+    # Development switch. When true: logging is forced to DEBUG regardless of `log_level`, and
+    # cost/quota-sensitive cloud calls take a cheaper development path (see `azure_di_dev_page_limit`).
+    # Leave false in any environment where real cost or real corpus size matters.
+    debug: bool = False
     online_eval_sample_rate: float = 0.1
+
+    @property
+    def effective_log_level(self) -> str:
+        """`log_level`, unless `debug` forces DEBUG. One place so every entry point agrees."""
+        return "DEBUG" if self.debug else self.log_level
 
     kill_switch: bool = False
     fixtures_path: str = ""  # set by evals to replay recorded tool output
@@ -196,6 +211,12 @@ class Settings(BaseSettings):
             problems.append("vectorstore_provider=azure requires azure_search_endpoint")
         if self.vectorstore_provider == "aws" and not self.opensearch_endpoint:
             problems.append("vectorstore_provider=aws requires opensearch_endpoint")
+        # Textract's multi-page path reads from S3 — there is no inline-bytes option. A
+        # single-page doc still works bucket-less, but a knowledge corpus is almost never
+        # single-page, so treat the missing bucket as a configuration error rather than a
+        # surprise ParseFailure partway through ingestion.
+        if self.parse_provider == "aws" and not self.textract_s3_bucket:
+            problems.append("parse_provider=aws requires textract_s3_bucket (async Textract reads from S3)")
         if problems:
             raise ValueError("configuration errors:\n  - " + "\n  - ".join(problems))
         return self

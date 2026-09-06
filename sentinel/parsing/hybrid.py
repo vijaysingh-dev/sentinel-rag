@@ -92,12 +92,22 @@ class HybridParser:
     async def parse(self, path: str | Path, **kwargs: Any) -> ParsedDocument:
         path = Path(path)
         fmt = detect_format(path)
+        log.debug(
+            "hybrid_entry",
+            path=str(path),
+            format=fmt.value,
+            strategy=self.strategy,
+            threshold=self.threshold,
+            local=self.local_provider,
+            cloud=self.cloud_provider,
+        )
 
         if fmt in LOCAL_ONLY_FORMATS:
             log.debug("parse_route", path=str(path), route="local_only", format=fmt.value)
             return await self._parse_with(self.local_provider, path, **kwargs)
 
         if fmt in CLOUD_PREFERRED_FORMATS and self.strategy != "single":
+            log.debug("parse_route", path=str(path), route="cloud_first", format=fmt.value)
             return await self._cloud_first(path, fmt, **kwargs)
 
         dispatch = {

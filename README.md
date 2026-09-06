@@ -56,7 +56,7 @@ python scripts/reranking/01_rerank_compare.py            # what a cross-encoder 
 
 | To understand | Read |
 |---|---|
-| every stage: what, why, and what it cost | `docs/STAGE-OVERVIEW.md` |
+| every stage: what, why, and what it cost | `docs/STAGE-OVERVIEW.md` (map) → `docs/stages/<stage>.md` (deep dive) |
 | the adapter pattern that makes clouds swappable | `sentinel/core/registry.py` |
 | the contract between stages | `sentinel/core/types.py` — note the two-field `Chunk` |
 | the most interesting policy decision in the pipeline | `sentinel/parsing/hybrid.py` |

@@ -1,75 +1,68 @@
 # Stage overview
 
-One section per pipeline stage. For each: **what we used**, **why**, **what the alternatives were**, **what the result was**, and **what breaks in production**.
+One section per pipeline stage. For each: **what we used**, **why**, **what the alternatives were**, **what the result was**, and **what breaks in production** — at a level you can hold in your head.
 
-This is the document to read before an interview. Every claim here is backed by code in `sentinel/` and by a runnable script in `scripts/`, so nothing in it is an assertion you cannot demonstrate.
+The deep version of each stage — the reasoning behind every constant, the per-provider mechanics, the traces — lives in `docs/stages/<stage>.md`. This file is the map; those are the territory. Read this before an interview; read the stage file before working on that stage.
 
-Result numbers marked _(illustrative)_ are placeholders showing the shape of the output. Run the benchmark named in each section against your own corpus to replace them — the real numbers are corpus-specific, and quoting someone else's is exactly the thing that fails a depth probe.
+Every claim here is backed by code in `sentinel/` and by a runnable script in `scripts/`, so nothing in it is an assertion you cannot demonstrate. Result numbers marked _(illustrative)_ are placeholders showing the shape of the output — run the benchmark named in each section against your own corpus to replace them.
 
 ---
 
 ## Contents
 
-| Stage | Code | Script | Benchmark |
-|---|---|---|---|
-| 1. Parsing | `parsing/` | `scripts/parsing/` | `benchmarks/parser_bakeoff.py` |
-| 2. Chunking | `chunking/` | — | `benchmarks/chunking_sweep.py` |
-| 3. Embedding | `embedding/` | `scripts/embedding/` | `benchmarks/embedding_bakeoff.py` |
-| 4. Vector store | `vectorstore/` | `scripts/vectorstore/` | — |
-| 5. Retrieval | `retrieval/` | `scripts/vectorstore/01_*` | `benchmarks/retrieval_sweep.py` |
-| 6. Reranking | `reranking/` | `scripts/reranking/` | `benchmarks/retrieval_sweep.py` |
-| 7. Generation | `generation/` | `scripts/llm/` | — |
-| 8. Evaluation | `evaluation/` | `scripts/evaluation/` | all |
-| 9. Agent layer | `rca/` | `make api` | `tests/test_trajectory.py` |
+| Stage | Detail | Code | Script | Benchmark |
+|---|---|---|---|---|
+| 1. Parsing | [`stages/parsing.md`](stages/parsing.md) | `parsing/` | `scripts/parsing/` | `benchmarks/parser_bakeoff.py` |
+| 2. Chunking | _(pending)_ | `chunking/` | — | `benchmarks/chunking_sweep.py` |
+| 3. Embedding | _(pending)_ | `embedding/` | `scripts/embedding/` | `benchmarks/embedding_bakeoff.py` |
+| 4. Vector store | _(pending)_ | `vectorstore/` | `scripts/vectorstore/` | — |
+| 5. Retrieval | _(pending)_ | `retrieval/` | `scripts/vectorstore/01_*` | `benchmarks/retrieval_sweep.py` |
+| 6. Reranking | _(pending)_ | `reranking/` | `scripts/reranking/` | `benchmarks/retrieval_sweep.py` |
+| 7. Generation | _(pending)_ | `generation/` | `scripts/llm/` | — |
+| 8. Evaluation | _(pending)_ | `evaluation/` | `scripts/evaluation/` | all |
+| 9. Agent layer | _(pending)_ | `rca/` | `make api` | `tests/test_trajectory.py` |
+
+Each stage gets its own `docs/stages/<stage>.md` as it is worked through; the _(pending)_ rows have their summary here only, for now.
 
 ---
 
 ## 1. Parsing
 
+**→ Full detail: [`stages/parsing.md`](stages/parsing.md)**
+
 ### What we used
 
-A three-provider adapter behind one interface, with a hybrid routing policy on top.
+A three-provider adapter behind one interface (`parsing/base.py`), with a hybrid routing policy (`parsing/hybrid.py`) on top.
 
 | Provider | Library / service | Handles |
 |---|---|---|
 | local | pdfplumber, python-docx, python-pptx, openpyxl, BeautifulSoup | native PDF, DOCX, PPTX, XLSX, CSV, MD, HTML, TXT, JSON |
-| azure | AI Document Intelligence, `prebuilt-layout` | scanned PDF, complex layout, ruled tables |
-| aws | Textract, `TABLES` + `LAYOUT` features | scanned PDF, images |
+| azure | AI Document Intelligence, `prebuilt-layout` | scanned PDF, complex layout, borderless tables |
+| aws | Textract, `TABLES` + `LAYOUT` | scanned PDF, images, ruled tables |
 
-Routing is decided per document by `parsing/hybrid.py`, using the reference-free quality score from `parsing/quality.py`.
+Every adapter returns the same `ParsedDocument` (`core/types.py`) — `blocks` in reading order, each keeping its structure (heading level, table grid, figure bbox). That uniformity is what makes the hybrid strategies and the cross-provider bake-off possible.
 
 ### Why
 
-Parsing is stage one and it caps everything downstream. No chunking strategy, embedding model or reranker recovers a table that was flattened into a column of orphaned numbers, or body text interleaved with a running header on every page.
+Parsing is stage one and it caps everything downstream — no later stage recovers a flattened table or interleaved columns. The economics force the hybrid design: most documents are handled perfectly by a free library, a minority badly; paying per page for all of them wastes money, using only local silently loses the minority. So parse locally, score the result with a reference-free heuristic (`quality.py`), and escalate only what falls below `parse_quality_threshold` (0.72).
 
-The economics force the hybrid design. On a mixed corpus, most documents are handled perfectly by a free library and a minority are handled badly. Paying per page for all of them wastes money; using only the local parser silently loses the minority. So: parse locally, score the result, escalate only what fails.
+Four strategies for different corpora: **`hybrid_escalate`** (default — local first, cloud on failure), `hybrid_merge` (both, best half of each), `race` (both, first acceptable wins — latency), `single` (baseline).
 
-Four strategies are implemented because different corpora want different trades:
+### The one thing to remember about the quality score
 
-- `hybrid_escalate` (default) — local first, cloud only below threshold. Cheapest sensible policy.
-- `hybrid_merge` — both parsers, prose from whichever scored higher on text quality, tables from whichever scored higher on table structure. Best single artifact, always pays cloud cost. Appropriate for a small high-value corpus.
-- `race` — both concurrently, first acceptable result wins. Optimises latency for interactive upload.
-- `single` — the baseline you benchmark the others against.
+It is a calibrated heuristic, not a fitted model, tuned conservative (a false "good" poisons the index forever; a false "bad" costs one cloud call). Its constants come from the physics of a page — e.g. "a full page of prose ≈ 1500 chars" from ~500 words × ~6 chars, halved for technical layout. **Its blind spot:** structure is only 20% of the weight, so a parse with perfect characters and zero headings can clear the threshold and never escalate. The `suzuki-brezza.pdf` walkthrough shows exactly this — local scores 0.87 and is accepted, yet lost every heading and mangled the spec tables that only Textract+LAYOUT recovered. Full derivation of every constant in the stage file.
 
-### Why the quality score is heuristic
+### Azure vs AWS
 
-At ingest time there is no ground truth to compare against, so the routing gate must be reference-free. `quality.py` scores five components — text density, word validity, structure, encoding, table plausibility — and weights the first two most heavily because they catch the catastrophic failures. It is tuned to be conservative: it should rarely call a bad parse good, since calling a good parse bad merely costs one cloud call.
+Contrary to a common guess, **Azure is the stronger OCR/layout engine** (scans, multi-column, borderless tables); it returns markdown ready to chunk. Textract returns a flat block graph you reassemble yourself and **requires an S3 bucket** for any multi-page document (`start_document_analysis` reads from S3). Textract's real advantages are AWS-ecosystem fit and the `FORMS` feature. Azure `prebuilt-layout` is also cheaper per page than Textract `analyze` ($0.010 vs $0.015). This is why `hybrid.py` escalates to Azure by default.
 
-The offline counterpart, `evaluation/parsing_eval.py`, does compare against hand-labelled truth and is what chooses providers. Three dimensions, because parsers fail in three ways:
+### Dev vs production: the `debug` switch
 
-- **text fidelity** — normalised edit similarity. Did the characters survive?
-- **table accuracy** — cell-level F1, a simplified TEDS. Did the grid survive?
-- **reading order** — Kendall's tau on block positions. Did the sequence survive? This is the one that silently destroys multi-column PDFs: every character is correct and the text is unreadable because two columns were interleaved line by line.
+`settings.debug` (env `DEBUG`) forces DEBUG logging and caps Azure Document Intelligence at `azure_di_dev_page_limit` pages (default 2 — per-page billing, and F0 caps at 2 anyway; logged as `azure_page_limited`). `DEBUG=false` sends the whole document. Config validation refuses `parse_provider=aws` without `TEXTRACT_S3_BUCKET`.
 
-### Azure vs AWS: the differences that matter
+### Tracing a parse
 
-**Azure returns markdown.** `output_content_format=MARKDOWN` on `prebuilt-layout` means headings arrive as `##`, tables arrive as grids, and section hierarchy is preserved. The structural chunker consumes that directly.
-
-**AWS returns a flat block graph.** Textract gives you every LINE, WORD, CELL and LAYOUT element as a node with `Relationships` pointing at children by Id. Reconstructing reading order and table grids is your job — most of `aws_parser.py` is that assembly.
-
-**Sync vs async is a hard API split on AWS.** `analyze_document` takes inline bytes but handles one page. Anything multi-page goes through `start_document_analysis`, which reads from S3 and returns a JobId you poll, with `NextToken` pagination over the results. An S3 bucket is a hard requirement, not a convenience. Azure has no equivalent constraint.
-
-**Model selection drives cost by an order of magnitude.** Azure `prebuilt-read` is roughly seven times cheaper than `prebuilt-layout` and returns no headings, tables or hierarchy. AWS with no features is plain OCR; `LAYOUT` is what makes the output usable for RAG rather than just text. Choosing the cheap variant and then wondering why chunking has nothing to work with is a common and expensive mistake.
+The adapters emit structured `DEBUG` events at every decision point; `scripts/parsing/_trace.py` folds them into a per-run trace. Each script writes `outputs/<stem>/<provider>.{trace.log, parsed.json, content.md}`; `04_hybrid_compare.py` adds `compare.trace.log` — the artefact that answers "how did you pick a parser?" with evidence.
 
 ### Result _(illustrative — run `make bench-parsers`)_
 
@@ -80,17 +73,15 @@ The offline counterpart, `evaluation/parsing_eval.py`, does compare against hand
 | aws | 0.85 | 0.95 | 0.86 | 0.91 | 4.7 | 0.1200 |
 | hybrid_escalate | 0.86 | 0.95 | 0.85 | 0.93 | 1.2 | 0.0180 |
 
-The interesting row is the last one: within a few points of the best single provider at roughly a quarter of the cost, because 78% of the corpus never escalated. The interesting column is cost-per-quality-point, not quality — a parser that scores 0.02 higher for eight times the price has not won.
-
-Per-format breakdown matters as much as the average. Local matches or beats both clouds on DOCX, PPTX and XLSX (the structure is already in the file — a layout model has nothing to recover) and loses badly on scans. A single average hides that entirely, which is why the bake-off reports by format.
+The last row is the point: within a few points of the best single provider at ~1/4 the cost, because 78% of the corpus never escalated. The interesting column is cost-per-quality-point, not quality.
 
 ### What breaks in production
 
-- **Scanned pages with no text layer.** Detected by `_pdf_has_text_layer` probing the first five pages; routed straight to cloud OCR by `CLOUD_PREFERRED_FORMATS`.
-- **Tables extracted twice.** Both the local and Azure parsers exclude table regions from the text pass; Textract needs `_ids_inside_tables` to drop LINE/WORD blocks already consumed by a CELL. Without it, every table's numbers appear as a grid *and* as loose paragraph noise.
-- **Running headers on every page** diluting every chunk. Flagged by `_encoding_score`.
-- **Speaker notes dropped from decks.** In architecture and design decks the rationale lives in the notes while the slide is a diagram with three words on it. `python-pptx` reads them and `local_parser` keeps them.
-- **Diagrams invisible to a text index.** `parsing/figures.py` describes them with a vision model at ingest, cached by image content hash, with decorative images (logos, rules) dropped rather than becoming empty chunks.
+- **Scanned pages with no text layer** — the text-layer probe routes them straight to cloud OCR.
+- **A parse that scores "good enough" but lost its structure** — the trace shows it; the heuristic won't.
+- **Azure F0 silently capping at 2 pages**; **`parse_provider=aws` with no S3 bucket** (both now caught explicitly).
+- **Tables extracted twice** — every adapter excludes captured table regions from the text pass.
+- **Running headers diluting every chunk**; **speaker notes dropped from decks**; **diagrams invisible to a text index** (`figures.py` describes them with a vision model).
 
 ---
 

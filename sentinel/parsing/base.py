@@ -20,6 +20,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from sentinel.core.observability import log
 from sentinel.core.types import ParsedDocument
 
 
@@ -97,7 +98,11 @@ def detect_format(path: str | Path) -> DocFormat:
             return DocFormat.UNKNOWN
 
     if fmt is DocFormat.PDF_NATIVE:
-        return DocFormat.PDF_NATIVE if _pdf_has_text_layer(path) else DocFormat.PDF_SCANNED
+        native = _pdf_has_text_layer(path)
+        resolved = DocFormat.PDF_NATIVE if native else DocFormat.PDF_SCANNED
+        log.debug("format_detected", path=str(path), suffix=path.suffix.lower(), format=resolved.value, probed=True)
+        return resolved
+    log.debug("format_detected", path=str(path), suffix=path.suffix.lower(), format=fmt.value, probed=False)
     return fmt
 
 
@@ -117,10 +122,20 @@ def _pdf_has_text_layer(path: Path, sample_pages: int = 5) -> bool:
         if not pages:
             return False
         chars = sum(len((p.extract_text() or "").strip()) for p in pages)
-        return chars / len(pages) >= NATIVE_TEXT_THRESHOLD_PER_PAGE
-    except Exception:
+        per_page = chars / len(pages)
+        log.debug(
+            "pdf_text_layer_probe",
+            path=str(path),
+            sample_pages=len(pages),
+            chars_per_page=round(per_page, 1),
+            threshold=NATIVE_TEXT_THRESHOLD_PER_PAGE,
+            verdict="native" if per_page >= NATIVE_TEXT_THRESHOLD_PER_PAGE else "scanned",
+        )
+        return per_page >= NATIVE_TEXT_THRESHOLD_PER_PAGE
+    except Exception as exc:
         # If probing fails, assume native: the local parser will produce a low quality score and
         # the hybrid strategy escalates to a cloud OCR service anyway.
+        log.debug("pdf_text_layer_probe_failed", path=str(path), error=str(exc)[:120], verdict="assume_native")
         return True
 
 

@@ -93,7 +93,16 @@ class LocalParser(BaseParser):
         if handler is None:
             raise ValueError(f"local parser cannot handle {fmt}")
 
+        log.debug("local_dispatch", path=str(path), format=fmt.value, handler=handler.__name__)
         blocks, pages = handler(path)
+        log.debug(
+            "local_blocks_built",
+            path=str(path),
+            blocks=len(blocks),
+            headings=sum(1 for b in blocks if b.type is BlockType.HEADING),
+            tables=sum(1 for b in blocks if b.type is BlockType.TABLE),
+            figures=sum(1 for b in blocks if b.type is BlockType.FIGURE),
+        )
 
         metrics = ParseMetrics(
             provider=self.name,
@@ -120,6 +129,18 @@ class LocalParser(BaseParser):
 
         report = score_parse(doc)
         PARSE_QUALITY.labels(self.name, fmt.value).observe(report.score)
+        log.debug(
+            "quality_components",
+            provider=self.name,
+            path=str(path),
+            score=report.score,
+            text_density=report.text_density,
+            word_validity=report.word_validity,
+            structure=report.structure_score,
+            encoding=report.encoding_score,
+            tables=report.table_score,
+            warnings=report.warnings,
+        )
         log.info(
             "parsed",
             provider=self.name,
@@ -176,10 +197,26 @@ class LocalParser(BaseParser):
                     return not any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1 in table_bboxes)
 
                 text = page.filter(outside_tables).extract_text() or ""
-                blocks.extend(self._blocks_from_text(text, page_no))
+                text_blocks = self._blocks_from_text(text, page_no)
+                blocks.extend(text_blocks)
 
+                image_blocks: list[Block] = []
                 if self.extract_images:
-                    blocks.extend(self._extract_page_images(page, page_no, path))
+                    image_blocks = self._extract_page_images(page, page_no, path)
+                    blocks.extend(image_blocks)
+
+                # Per-page visibility: a brochure page that is all display text and images yields
+                # near-nothing here, and that is exactly where a whole-document quality score hides
+                # the problem.
+                log.debug(
+                    "pdf_page_extracted",
+                    page=page_no,
+                    tables=len(table_bboxes),
+                    text_chars=len(text),
+                    text_blocks=len(text_blocks),
+                    headings=sum(1 for b in text_blocks if b.type is BlockType.HEADING),
+                    images=len(image_blocks),
+                )
 
         return blocks, page_count
 
