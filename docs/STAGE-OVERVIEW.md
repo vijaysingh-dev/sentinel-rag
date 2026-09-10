@@ -13,7 +13,7 @@ Every claim here is backed by code in `sentinel/` and by a runnable script in `s
 | Stage | Detail | Code | Script | Benchmark |
 |---|---|---|---|---|
 | 1. Parsing | [`stages/parsing.md`](stages/parsing.md) | `parsing/` | `scripts/parsing/` | `benchmarks/parser_bakeoff.py` |
-| 2. Chunking | _(pending)_ | `chunking/` | — | `benchmarks/chunking_sweep.py` |
+| 2. Chunking | [`stages/chunking.md`](stages/chunking.md) | `chunking/` | — | `benchmarks/chunking_sweep.py` |
 | 3. Embedding | _(pending)_ | `embedding/` | `scripts/embedding/` | `benchmarks/embedding_bakeoff.py` |
 | 4. Vector store | _(pending)_ | `vectorstore/` | `scripts/vectorstore/` | — |
 | 5. Retrieval | _(pending)_ | `retrieval/` | `scripts/vectorstore/01_*` | `benchmarks/retrieval_sweep.py` |
@@ -87,6 +87,8 @@ The last row is the point: within a few points of the best single provider at ~1
 
 ## 2. Chunking
 
+**→ Full detail: [`stages/chunking.md`](stages/chunking.md)**
+
 ### What we used
 
 Nine strategies behind one interface, selected **per document type** by a routing table rather than globally.
@@ -103,31 +105,15 @@ Available but not default: `fixed`, `recursive`, `sentence_window`, `parent_docu
 
 Chunking resolves a conflict between two consumers of the same text. The retriever wants small single-topic units, because a vector averaging five topics is close to nothing in embedding space. The generator wants enough context to answer — the definition, the setup, the table header, the antecedent of "it".
 
-The resolution is the central design decision of the whole package: **`Chunk` carries two text fields.** `embed_text` is vectorised; `context_text` is handed to the LLM. They are usually the same and deliberately need not be. Sentence-window and parent-document strategies are only expressible because of that split — a single-text-field chunk model cannot represent them at all.
+The resolution is the central design decision of the whole package: **`Chunk` carries two text fields.** `embed_text` is vectorised; `context_text` is handed to the LLM. They are usually the same and deliberately need not be. Sentence-window, parent-document and contextual strategies are only expressible because of that split — a single-text-field chunk model cannot represent them at all.
 
-### Why `structural` is the default
+### The three things to remember
 
-The heading path prefix is doing most of the work, and it is usually worth more than upgrading the embedding model.
+- **`structural` is the default because of the heading-path prefix.** *"Set this to false to skip validation"* is unretrievable; *"ICE Configuration > Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of queries. That prefix costs a handful of tokens and usually buys more recall than upgrading the embedding model.
+- **`runbook` is a separate strategy because a retrieved half-runbook is worse than none** — someone under incident pressure executes the half. Steps are embedded individually for precision; `context_text` is always the complete procedure. The clearest case for routing chunking per doc type.
+- **`semantic` and `contextual` both cost an extra embed/LLM pass.** `semantic` embeds the corpus once just to pick boundaries and rarely beats `recursive` by enough to justify it — benchmark the cost column, not the recall column. `contextual` (Anthropic's technique — a cheap model writes one situating sentence per chunk) is only affordable via prompt caching and is off by default (`CONTEXTUAL_CHUNKING=false`).
 
-A chunk reading *"Set this to false to skip validation"* is unretrievable — no realistic query lands near it. The same chunk embedded as *"ICE Configuration > Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of queries. That costs a handful of tokens.
-
-### Why `runbook` exists as a separate strategy
-
-A retrieved half-runbook is worse than no runbook, because someone under incident pressure will execute the half. So steps are embedded individually (precision — a query about one step finds that step) while `context_text` is always the complete procedure.
-
-This is the clearest example of why chunking is chosen per document type rather than globally.
-
-### The honest assessment of semantic chunking
-
-It embeds every sentence, measures cosine distance between consecutive sentences, and splits at distance peaks. It is fashionable. It is also **expensive** — you embed the whole corpus once at ingest just to decide boundaries, then embed the chunks again — and in published comparisons it frequently fails to beat recursive splitting by enough to justify that.
-
-Benchmark it before adopting it. The interesting column in the result is usually cost, not recall.
-
-### Contextual chunking
-
-Anthropic's technique: a cheap model writes one sentence situating each chunk in its document, prepended before embedding. It recovers most of what splitting destroys — pronouns, implicit subjects, "as described above".
-
-What makes it affordable is prompt caching: the document sits in the static prefix, so after the first chunk the provider charges roughly a tenth for those tokens. Without caching it is impractical at corpus scale. Off by default (`CONTEXTUAL_CHUNKING=false`) because it costs one LLM call per chunk.
+Every size decision is measured in tokens via one consistent ruler (`ntokens`, tiktoken `cl100k_base` even for Claude/Titan — a benchmark needs consistency more than exactness), degrading to a ~4-chars/token approximation, logged once, when the encoding file cannot be fetched. Full derivation of the recursion algorithm, the regexes and every constant in the stage file.
 
 ### Result _(illustrative — run `make bench-chunking`)_
 
