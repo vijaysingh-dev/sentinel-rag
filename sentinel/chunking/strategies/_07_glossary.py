@@ -17,8 +17,9 @@ from sentinel.core.types import Chunk, ParsedDocument
 class GlossaryChunker(BaseChunker):
     """One term per chunk.
 
-    Glossary entries are atomic. Merging "divisor" and "rebalance" into one 500-token chunk makes
-    both harder to find, because the vector now represents an average of two unrelated concepts.
+    Glossary entries are atomic. Merging "burn rate" and "error budget" into one 500-token chunk
+    makes both harder to find, because the vector now represents an average of two unrelated
+    concepts.
     """
 
     TERM = re.compile(

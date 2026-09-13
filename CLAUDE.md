@@ -4,12 +4,14 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-A multi-cloud RAG pipeline (local / Azure / AWS) feeding a LangGraph multi-agent root-cause analysis system for a financial index calculation platform. Built as a production-shaped reference: the dependencies it talks to are stubbed, but the control flow, failure handling, security model, evaluation and observability are the real shapes.
+A RAG pipeline feeding a LangGraph multi-agent root-cause analysis system for the OpenTelemetry Demo ("Astroshop"), a real ~20-service e-commerce deployment instrumented with Prometheus, Jaeger and flagd. Built as a production-shaped reference: the dependencies it talks to are stubbed, but the control flow, failure handling, security model, evaluation and observability are the real shapes.
+
+Provider shape (ADR-029, 2026-09 — see `docs/design-decisions.md`): **parsing is multi-cloud** (local / Azure Document Intelligence / AWS Textract — each does something a local library genuinely cannot: layout models, OCR on scans). **Embedding, vector storage and reranking are local-first infrastructure**, not a cloud-account choice: running pgvector and a local embedding/reranking model costs nothing per query, so those stages default to `local` with one paid escape hatch each (`openai` for embedding, `cohere` for reranking) rather than a maintained Azure/AWS path. **Generation picks a model vendor directly** — `local` (Ollama/vLLM), `openai`, `anthropic` or `google` — independent of whichever cloud account parsing uses. Each stage has its own `Literal` type in `core/config.py` (`ParseProvider`, `EmbedProvider`, `VectorProvider`, `RerankProvider`, `LLMProvider`); there is no shared `Provider` type.
 
 Two things it is optimised for, in this order:
 
 1. **Depth over breadth.** Every design decision should have a stated reason, a named alternative, and an honest account of what it costs. If a change cannot be justified that way, it is probably not the right change.
-2. **Provider symmetry.** Anything added for one cloud should have a counterpart for the others, or an explicit note in `docs/adapters.md` explaining why it cannot.
+2. **Provider symmetry — scoped per stage.** Adding a parsing provider needs a local/azure/aws counterpart (or an explicit note in `docs/adapters.md`). Adding an embed/rerank/llm provider does not need to exist on every stage — it needs a stated reason it belongs on the stage it's added to, per ADR-029.
 
 ## Layout
 
@@ -18,11 +20,11 @@ sentinel/
   core/           types, config, provider registry, observability, resilience, cache
   parsing/        base + local/azure/aws adapters, hybrid routing, quality scoring, figures
   chunking/       base + nine strategies + doc-type routing table
-  embedding/      base + local/azure/aws adapters
-  vectorstore/    base + pgvector/azure-search/opensearch adapters
+  embedding/      base + local/openai adapters
+  vectorstore/    base + pgvector adapter (only maintained vectorstore, ADR-029)
   retrieval/      pipeline, fusion (RRF/MMR/dedupe), query transformation
-  reranking/      base + local/azure/aws adapters
-  generation/     LLM adapters
+  reranking/      base + local/cohere adapters
+  generation/     LLM adapters — local/openai/anthropic/google
   evaluation/     metrics, parsing/retrieval/generation/agent evaluators, golden set, CI gate
   ingest/         pipeline, ACL resolver, generated fact sheets
   rca/            the agent system: graph, agents/, tools/, state, api
@@ -30,6 +32,7 @@ scripts/          runnable per-stage demos, one per provider
 benchmarks/       bake-offs producing markdown leaderboards
 tests/            ACL, pipeline, parsing, trajectory — all run without cloud credentials
 docs/             STAGE-OVERVIEW.md is the map; docs/stages/<stage>.md is the deep dive per stage
+.archive/providers/  retired Azure/AWS embed/vectorstore/rerank/llm adapters — see its README
 ```
 
 ## Commands
@@ -37,8 +40,9 @@ docs/             STAGE-OVERVIEW.md is the map; docs/stages/<stage>.md is the de
 ```bash
 make install          # local extras only, no cloud account needed
 make doctor           # which providers are actually usable here
-make up               # postgres+pgvector, redis, langfuse
+make up               # langfuse (postgres/redis are the always-on infra layer, see below)
 make demo-up          # the OpenTelemetry Demo (Astroshop) + Prometheus/Jaeger + incident sidecars
+make otel-demo-up     # make up + make demo-up, in order, with the astronomy_db seed applied
 make corpus           # (re)generate ./knowledge, ground truth, golden set and agent fixtures
 make ingest           # index ./knowledge
 make test             # full suite, no infrastructure required
@@ -52,6 +56,44 @@ make chat-ui          # the Agent Chat UI (web/), talks to chat-server
 
 Run `make doctor` first when something is unexpectedly failing. Most "broken" states are a missing extra or an absent credential, and it reports both in one line.
 
+### The infra layer: postgres, redis, Portainer
+
+`postgres` and `redis` are **not** managed by any `docker compose` project. They're standalone, always-on containers (plain `docker run`, `restart: unless-stopped`) on a dedicated `infra` Docker network, started once and left running whenever the machine is up — the same way Portainer is. Reasoning: idle, the two of them cost ~57MB combined and near-zero CPU (measured with `docker stats`), too small to be worth the ceremony of starting/stopping per project; everything that actually costs something to run idle — otel-demo's ~25 services, Sentinel's own `langfuse` — is manual-start only (`restart: no`, the compose default), started with `make up`/`make demo-up` and stopped with `make down`/`make demo-down` when you're not actively working.
+
+Both `sentinel-rag/docker-compose.yml` (langfuse) and `app/otel-demo/compose.extras.yaml` (product-catalog, cart, otel-collector) join the `infra` network as an `external: true` network and reach `postgres`/`redis` by container name — see either file's header comment for the full reasoning. `make up` checks both are reachable and fails fast with a pointer back here if they aren't; it never starts or stops them.
+
+One-time setup (or after a fresh machine — `sentinel-rag_pgdata` is the volume the commands below expect to already exist; on a genuinely fresh install, drop the `-v sentinel-rag_pgdata:...` line and Postgres will initialize an empty one, running `config/init-readonly-role.sql` and otel-demo's `astronomy_db` seed automatically via the mounted `docker-entrypoint-initdb.d` directory):
+
+```bash
+docker network create infra
+
+docker run -d --name postgres --network infra --restart unless-stopped \
+  -e POSTGRES_USER=sentinel -e POSTGRES_PASSWORD=sentinel -e POSTGRES_DB=sentinel \
+  -p 5432:5432 \
+  -v sentinel-rag_pgdata:/var/lib/postgresql/data \
+  -v "$HOME/.local/share/sentinel-rag/runtime/pg-init:/docker-entrypoint-initdb.d:ro" \
+  --health-cmd "pg_isready -U sentinel" --health-interval 5s --health-retries 10 \
+  pgvector/pgvector:pg16
+
+docker run -d --name redis --network infra --restart unless-stopped \
+  -p 6379:6379 \
+  redis:7-alpine redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+# Portainer, if you don't already have one — a GUI for exactly this "what's running, what's
+# idle" question. Not on the infra network (doesn't need to be; it talks to Docker via the
+# socket, not to other containers) — this is the same one-time-only, always-on shape though.
+docker volume create portainer_data
+docker run -d --name portainer --restart unless-stopped \
+  -p 9000:9000 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v portainer_data:/data \
+  portainer/portainer-ce:latest
+```
+
+`~/.local/share/sentinel-rag/runtime/pg-init/` holds the staged, 0644-permission copies of `config/init-readonly-role.sql` (as `10-readonly.sql`) and `app/otel-demo/src/postgresql/init.sql` (as `20-astronomy-db.sql`) — staged rather than bind-mounted directly from the repo because a fuseblk-style checkout mount (see `app/otel-demo/compose.extras.yaml`'s header comment) makes the repo copies unreadable to the container. Re-stage by hand if either source file changes; `make up`/`make otel-demo-up` no longer do it automatically now that postgres isn't compose-managed.
+
+Redis is a pure cache with no volume — restarting it is always safe and loses nothing that matters (cart's Valkey traffic lives on logical DB 1; Sentinel's own cache is DB 0, see `sentinel/core/cache.py`).
+
 ## Non-negotiable invariants
 
 Changing any of these needs a deliberate decision and an ADR entry in `docs/design-decisions.md`, not a quiet edit.
@@ -61,7 +103,7 @@ Changing any of these needs a deliberate decision and an ADR entry in `docs/desi
 - Filters go **inside** the query, never applied afterwards. A post-filter has already loaded restricted content into the process.
 - Tenant and role scope come from `rca/runtime` contextvars, never from a tool argument. Anything a model can write is something a prompt injection can control.
 - A refusal must not disclose that the restricted document exists. Asserted in `tests/test_acl.py`.
-- Generated SQL: parse with sqlglot, single statement, forced LIMIT — and a database-level read-only role, which is the layer that actually guarantees it.
+- PromQL queries: metric-name allowlist, forbidden-function list, forced bounded time range — and Prometheus' read-only query API, which is the layer that actually guarantees it (`rca/tools/metrics.py`; see ADR-027, which superseded the SQL-warehouse version of this control in ADR-018).
 
 **Grounding**
 - Claims citing a ref that never appeared in a real tool result are dropped in `rca/agents/common.observed_refs`, not argued with by the verifier.
@@ -107,11 +149,14 @@ Other conventions:
 ### Adding a provider to an existing stage
 
 1. Implement the stage's base class in `sentinel/<stage>/<name>_<stage>.py`.
-2. Register it in `core/registry._SPECS`.
-3. Add the SDK to a `pyproject.toml` extra.
-4. Add a runnable script under `scripts/<stage>/`.
-5. Add a row to the provider matrix in `docs/adapters.md`.
-6. Confirm `benchmarks/` picks it up — the sweeps enumerate the registry, so no benchmark change should be needed. If one is, the registry entry is wrong.
+2. Widen that stage's `Literal` in `core/config.py` (`ParseProvider`/`EmbedProvider`/`VectorProvider`/`RerankProvider`/`LLMProvider`) and add its credential fields + a `_check_provider_prerequisites` case that fails fast without them.
+3. Register it in `core/registry._SPECS`.
+4. Add the SDK to a `pyproject.toml` extra.
+5. Add a runnable script under `scripts/<stage>/`.
+6. Add a row to the provider matrix in `docs/adapters.md`.
+7. Confirm `benchmarks/` picks it up — the sweeps enumerate the registry, so no benchmark change should be needed. If one is, the registry entry is wrong.
+
+Since ADR-029, a new provider does **not** need a counterpart on every other stage — parsing is the one stage where local/azure/aws symmetry is the expectation; embed/vectorstore/rerank/llm each carry only the providers that stage has a stated reason to support (see "What this is"). A stage no longer worth maintaining goes to `.archive/providers/`, not silently deleted — that README says how to revive one.
 
 Imports must be **inside** the constructor or method, never at module top level. The registry's lazy loading is what lets someone run the whole local pipeline without boto3 or the Azure SDKs installed.
 

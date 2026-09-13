@@ -75,11 +75,11 @@ Knowing what to exclude is as much of the design as what to include.
 
 | Question type | Handled by | Why not RAG |
 |---|---|---|
-| "Is the SGX feed healthy?" | live monitoring tool | seconds-fresh; a cached answer is an incident |
-| "Which indices rebalance in March?" | validated SQL against metadata | exact, always current, cheaper |
-| "Show errors from ICE in the last hour" | KQL/log query tool | logs are high-volume and ephemeral |
-| "What does a stale feed mean?" | RAG | stable prose, months of validity |
-| "How do I restart ICE?" | RAG | procedure, versioned, needs whole-document context |
+| "Is checkout healthy right now?" | `query_prometheus` (live) | seconds-fresh; a cached answer is an incident |
+| "What's payment's p99 latency this hour?" | `query_prometheus` (PromQL) | exact, always current, cheaper |
+| "Show errors from checkout in the last hour" | `find_traces` (Jaeger) | traces are high-volume and ephemeral |
+| "What does a circuit breaker opening mean?" | RAG | stable prose, months of validity |
+| "How do I restart the checkout service?" | RAG | procedure, versioned, needs whole-document context |
 
 Indexing logs is the most common mistake in this space: they are enormous, they change constantly, and the useful signal is aggregate rather than semantic. What *is* worth indexing is error signatures extracted from closed incidents — small, stable, and exactly the mapping from symptom to cause that RAG is good at.
 

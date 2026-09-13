@@ -62,7 +62,7 @@ Contrary to a common guess, **Azure is the stronger OCR/layout engine** (scans, 
 
 ### Tracing a parse
 
-The adapters emit structured `DEBUG` events at every decision point; `scripts/parsing/_trace.py` folds them into a per-run trace. Each script writes `outputs/<stem>/<provider>.{trace.log, parsed.json, content.md}`; `04_hybrid_compare.py` adds `compare.trace.log` — the artefact that answers "how did you pick a parser?" with evidence.
+The adapters emit structured `DEBUG` events at every decision point; `scripts/parsing/_trace.py` folds them into a per-run trace. Each script writes `outputs/parsing/<stem>/<provider>.{trace.log, parsed.json, content.md}`; `04_hybrid_compare.py` adds `compare.trace.log` — the artefact that answers "how did you pick a parser?" with evidence.
 
 ### Result _(illustrative — run `make bench-parsers`)_
 
@@ -109,7 +109,7 @@ The resolution is the central design decision of the whole package: **`Chunk` ca
 
 ### The three things to remember
 
-- **`structural` is the default because of the heading-path prefix.** *"Set this to false to skip validation"* is unretrievable; *"ICE Configuration > Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of queries. That prefix costs a handful of tokens and usually buys more recall than upgrading the embedding model.
+- **`structural` is the default because of the heading-path prefix.** *"Set this to false to skip validation"* is unretrievable; *"Checkout Configuration > Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of queries. That prefix costs a handful of tokens and usually buys more recall than upgrading the embedding model.
 - **`runbook` is a separate strategy because a retrieved half-runbook is worse than none** — someone under incident pressure executes the half. Steps are embedded individually for precision; `context_text` is always the complete procedure. The clearest case for routing chunking per doc type.
 - **`semantic` and `contextual` both cost an extra embed/LLM pass.** `semantic` embeds the corpus once just to pick boundaries and rarely beats `recursive` by enough to justify it — benchmark the cost column, not the recall column. `contextual` (Anthropic's technique — a cheap model writes one situating sentence per chunk) is only affordable via prompt caching and is off by default (`CONTEXTUAL_CHUNKING=false`).
 
@@ -143,47 +143,38 @@ Read the `chunks/doc` column alongside recall. More chunks is not better: it inf
 
 | Provider | Model | Dims | Notes |
 |---|---|---|---|
-| local | BAAI/bge-base-en-v1.5 | 768 | free, private, no rate limit |
-| azure | text-embedding-3-large | 3072 → 256 | Matryoshka truncation via `dimensions` |
-| aws | Titan v2 / Cohere Embed v3 | 1024/512/256 | two genuinely different APIs |
+| local (default) | BAAI/bge-base-en-v1.5 | 768 | free, private, no rate limit |
+| openai | text-embedding-3-small / -large | 1536 / 3072 → 256 | Matryoshka truncation via `dimensions` on the `-3-*` family |
+
+Embedding is local-first infrastructure, not a cloud-account choice (ADR-029, `docs/design-decisions.md`) — `openai` is one paid escape hatch for when local quality isn't enough, not a maintained multi-cloud matrix. Azure OpenAI and Bedrock (Titan/Cohere) embedding adapters are archived at `.archive/providers/embedding/`.
 
 ### Why the base class enforces query/document asymmetry
 
 This is the silent quality killer, and it is the first thing to check when recall is inexplicably mediocre.
 
-BGE and E5 were trained with an **instruction prefix on the query side only**. Cohere Embed v3 requires an explicit `input_type` — `search_document` when indexing, `search_query` when querying. Getting either wrong costs several points of recall and produces no error whatsoever.
+BGE and E5 were trained with an **instruction prefix on the query side only**. Getting it wrong costs several points of recall and produces no error whatsoever.
 
 So `BaseEmbedder` makes `embed_query` and `embed_documents` separate methods that an adapter cannot accidentally collapse. `scripts/embedding/01_embed_local.py` prints the similarity margin with and without the prefix so the cost is visible rather than theoretical.
 
-### Matryoshka truncation (Azure)
+### Matryoshka truncation (OpenAI)
 
 `text-embedding-3-*` models are trained so the leading dimensions are usable alone. Passing `dimensions=512` to a 3072-dimension model returns a shorter vector retaining most of the quality.
 
-This is a real lever: index size and query latency both scale with dimensionality, and storage is often the binding constraint before quality is. It enables a two-stage pattern — search on truncated vectors for a wide candidate set, rescore the top candidates with full-precision vectors.
+This is a real lever: index size and query latency both scale with dimensionality, and storage is often the binding constraint before quality is. It enables a two-stage pattern — search on truncated vectors for a wide candidate set, rescore the top candidates with full-precision vectors. `scripts/embedding/02_embed_openai.py` measures the margin at each truncation on real text.
 
-Note that `ada-002` rejects the `dimensions` parameter outright, so the adapter checks `MATRYOSHKA_CAPABLE` before sending it.
-
-### Titan vs Cohere on Bedrock
-
-The difference changes how you write ingestion code:
-
-**Titan has no batch endpoint.** One `InvokeModel` call per text. Throughput comes from client-side concurrency, so `BedrockEmbedder` fans out through a `ThreadPoolExecutor` and uses `executor.map` — not `as_completed` — because input order must be preserved for zipping vectors back to chunks.
-
-**Cohere batches up to 96** and requires `input_type`.
-
-Azure OpenAI accepts hundreds of inputs per request, so a naive port of Azure ingestion code to Titan will be slow in a way that looks like a network problem and is actually an API shape problem.
+Note that `ada-002`-style models reject the `dimensions` parameter outright, so the adapter checks `MATRYOSHKA_CAPABLE` before sending it.
 
 ### Result _(illustrative — run `benchmarks/embedding_bakeoff.py`)_
 
 | provider | model | dims | recall@5 | ndcg@5 | ms/1k chunks | usd/1M tokens |
 |---|---|---|---|---|---|---|
-| azure | text-embedding-3-large | 3072 | 0.87 | 0.81 | 2100 | 0.13 |
-| azure | text-embedding-3-large | 1024 | 0.86 | 0.80 | 2000 | 0.13 |
-| azure | text-embedding-3-large | 256 | 0.81 | 0.74 | 1900 | 0.13 |
-| aws | titan-embed-text-v2 | 1024 | 0.84 | 0.78 | 8400 | 0.02 |
+| openai | text-embedding-3-large | 3072 | 0.87 | 0.81 | 2100 | 0.13 |
+| openai | text-embedding-3-large | 1024 | 0.86 | 0.80 | 2000 | 0.13 |
+| openai | text-embedding-3-large | 256 | 0.81 | 0.74 | 1900 | 0.13 |
+| openai | text-embedding-3-small | 1536 | 0.84 | 0.78 | 1800 | 0.02 |
 | local | bge-base-en-v1.5 | 768 | 0.83 | 0.77 | 12000 | 0.00 |
 
-Two things worth noticing. Truncating 3072 → 1024 costs about a point of recall and saves two thirds of the index footprint — usually a good trade. And the local model is within four points of the best hosted one at zero marginal cost and zero data egress, which for some corpora is not a trade at all but a requirement.
+Two things worth noticing. Truncating 3072 → 1024 costs about a point of recall and saves two thirds of the index footprint — usually a good trade. And the local model is within four points of the best hosted one at zero marginal cost and zero data egress, which for some corpora is not a trade at all but a requirement — and is the reason this repo defaults every embedding call to it.
 
 ### What breaks in production
 
@@ -197,53 +188,28 @@ Two things worth noticing. Truncating 3072 → 1024 costs about a point of recal
 
 ### What we used
 
-| Provider | Backend | Hybrid | Reranker |
-|---|---|---|---|
-| local | Postgres + pgvector | RRF in a single SQL statement | separate |
-| azure | AI Search | native, RRF | native semantic ranker |
-| aws | OpenSearch (Serverless or managed) | client-side RRF or server-side pipeline | separate |
+| Provider | Backend | Hybrid |
+|---|---|---|
+| local (only provider) | Postgres + pgvector | RRF in a single SQL statement |
+
+pgvector is the only maintained vector store (ADR-029) — the same local-first reasoning as embedding and reranking applies: no per-query cost, comfortable into the tens of millions of rows, one fewer system to operate. Azure AI Search and OpenSearch adapters are archived at `.archive/providers/vectorstore/`, with their native-hybrid and SigV4/serverless mechanics preserved there as reference.
 
 ### Why pgvector is the default
 
 If Postgres is already in the stack you get transactions, joins to your metadata, row-level security for tenant isolation, and one fewer system to operate. It stays comfortable into the tens of millions of rows. "You need a dedicated vector database" is true later than most people assume.
 
-Hybrid search needs no second system either: Postgres has full-text search built in, so `HYBRID_SQL` runs both arms as CTEs and fuses them with RRF in one statement. Fusion happens *before* truncation rather than after — the same advantage Azure's native hybrid gives you.
-
-### Why Azure AI Search is compelling
-
-Hybrid retrieval and a cross-encoder reranker are built in. One call does BM25, does vector search, fuses by rank, then re-scores the top candidates with the semantic ranker. Assembling that yourself means three components and a fusion implementation.
-
-Two mechanics to be able to explain, because "the service does it" is not an answer:
-
-- Passing both `search_text` and `vector_queries` is what makes the query hybrid. The service runs both arms and fuses by rank — the same RRF implemented by hand in `retrieval/fusion.py`.
-- `query_type="semantic"` adds the reranker. It returns `@search.rerankerScore` on roughly a 0–4 scale, unrelated to the cosine score, so a relevance floor tuned for one cannot be reused for the other.
-
-### Why OpenSearch is more work
-
-OpenSearch gives you the primitives, not the pipeline. BM25 and k-NN are both first-class; fusing them is your job — either client-side, or via a server-side search pipeline with a normalization processor. Both are implemented; client-side RRF is the default because it behaves identically to the other backends and is therefore comparable in a benchmark.
-
-Two AWS-specific traps:
-
-- **SigV4 service name.** Serverless signs against `aoss`, managed domains against `es`. Getting it wrong produces a 403 that looks like a permissions problem and is really a signing problem.
-- **Serverless rejects a client-supplied `_id`** on the bulk API. Managed accepts it, and supplying it is what makes re-ingestion idempotent rather than duplicating. The adapter branches on `self.serverless`.
+Hybrid search needs no second system either: Postgres has full-text search built in, so `HYBRID_SQL` runs both arms as CTEs and fuses them with RRF in one statement. Fusion happens *before* truncation rather than after — the same advantage a managed hybrid API gives you, without needing one.
 
 ### Security: the filter is inside the query
 
-Every adapter translates `SearchFilter` into its backend's native filter language and applies it **as part of the search**, not afterwards. A post-filter has already loaded restricted content into your process, where a log line or an exception traceback can leak it.
-
-| Backend | Mechanism |
-|---|---|
-| pgvector | `allowed_roles && %(roles)s` array overlap, GIN-indexed, in the WHERE clause |
-| Azure | OData `allowed_roles/any(r: search.in(r, '...'))`, applied inside the ANN traversal |
-| OpenSearch | `terms` clause in `bool.filter` — filter context, so it does not affect scoring and is cacheable |
+`PgVectorStore` translates `SearchFilter` into `allowed_roles && %(roles)s` — a GIN-indexed Postgres array-overlap operator — and applies it **as part of the search**, not afterwards. A post-filter has already loaded restricted content into your process, where a log line or an exception traceback can leak it.
 
 `SearchFilter.require_scope()` raises on an empty role list rather than rendering an empty clause that matches everything. That is the difference between "this caller sees nothing" and "this caller sees the entire corpus", and it is asserted in `tests/test_acl.py`.
 
 ### What breaks in production
 
-- **HNSW recall degradation** under heavy filtering. All three expose an `ef_search` dial; pgvector sets it per session, Azure and OpenSearch at index level.
-- **Vectors shipped back over the wire.** The OpenSearch adapter excludes the `embedding` field from `_source` on every read; forgetting costs bandwidth proportional to `k × dims × 4` bytes per query.
-- **Re-ingestion duplicating the corpus.** Content-derived chunk ids plus `merge_or_upload` / `ON CONFLICT DO UPDATE` make writes idempotent. `chunk_ids_for_doc` supports orphan tombstoning, without which the system confidently cites superseded runbooks.
+- **HNSW recall degradation** under heavy filtering. pgvector exposes `hnsw.ef_search` as a per-session dial for this.
+- **Re-ingestion duplicating the corpus.** Content-derived chunk ids plus `ON CONFLICT DO UPDATE` make writes idempotent. `chunk_ids_for_doc` supports orphan tombstoning, without which the system confidently cites superseded runbooks.
 
 ---
 
@@ -285,7 +251,7 @@ Weighted fusion is implemented too, and can beat RRF *with a tuned alpha* — bu
 ### Query transformation, in order of real-world payoff
 
 1. **Conversational rewriting.** "What about the second one?" has no standalone meaning; embedding it retrieves noise. Any multi-turn RAG system without rewriting is broken from turn two onward, and it is the most common unreported bug in deployed assistants. Gated by a cheap regex (`DEPENDENT`) so the majority of already-standalone queries do not pay for an LLM call.
-2. **Decomposition** for multi-hop questions. "How does divisor adjustment differ between special dividends and spin-offs?" is two lookups and a comparison.
+2. **Decomposition** for multi-hop questions. "How does the checkout service's retry policy differ from the payment service's?" is two lookups and a comparison.
 3. **Multi-query** paraphrasing for vocabulary mismatch between askers and authors. Costs n extra retrievals; belongs on high-value paths.
 4. **HyDE** — embed a fabricated answer rather than the question, since an answer sits closer to real passages than a question does. Helps on jargon-heavy queries, hurts when the model hallucinates the wrong domain. Opt-in.
 
@@ -333,9 +299,10 @@ The knee in candidate depth is around k=50; beyond it, extra candidates cost rer
 
 | Provider | Model | Score scale | Floor |
 |---|---|---|---|
-| local | cross-encoder/ms-marco-MiniLM-L-6-v2 | unbounded logits | −2.0 |
-| azure | AI Search semantic ranker | ~0–4 | 1.4 |
-| aws | `amazon.rerank-v1:0` via bedrock-agent-runtime | normalised [0,1] | 0.02 |
+| local (default) | cross-encoder/ms-marco-MiniLM-L-6-v2 | unbounded logits | −2.0 |
+| cohere | rerank-v3.5 | normalised [0,1] | 0.02 |
+
+Reranking is local-first infrastructure like embedding (ADR-029): `cohere` is one paid escape hatch, not a maintained multi-cloud matrix. Azure AI Search's native semantic ranker and Bedrock Rerank are archived at `.archive/providers/reranking/`.
 
 ### Why: bi-encoder vs cross-encoder
 
@@ -357,11 +324,9 @@ Floors are **per reranker and never portable**, because the score scales are unr
 
 ### Provider-specific mechanics
 
-**Azure is native.** The semantic ranker runs inside the search request — nothing to host, nothing to batch, no extra round trip. The adapter's `rerank()` is usually a no-op reorder of scores that already arrived. A standalone mode exists for candidates from elsewhere, at the cost of an extra query.
+**Cohere is a network call per query, not just per ingestion run.** Unlike the local cross-encoder, `CohereReranker` adds a real round trip to every retrieval. That is the actual trade against its quality, separate from the per-request price.
 
-**AWS lives on a different client.** `bedrock-agent-runtime.rerank`, not `bedrock-runtime` — a common source of "method not found". Sources are capped at 100 per call, so a 200-candidate pool is three calls.
-
-**Local is often the best value.** A MiniLM cross-encoder scores ~50 pairs in 50–150ms on CPU and single-digit milliseconds on GPU, at zero marginal cost and with no data leaving the machine. If you can make only one change to a RAG system, make it this one.
+**Local is often the best value.** A MiniLM cross-encoder scores ~50 pairs in 50–150ms on CPU and single-digit milliseconds on GPU, at zero marginal cost and with no data leaving the machine. If you can make only one change to a RAG system, make it this one — which is why it's the default here.
 
 ### What breaks in production
 
@@ -386,14 +351,17 @@ Every adapter exposes three handles, because a production pipeline never uses on
 | Provider | chat | cheap |
 |---|---|---|
 | local | Ollama/vLLM via OpenAI-compatible endpoint | smaller local model |
-| azure | AzureChatOpenAI (gpt-4o) | gpt-4o-mini |
-| aws | ChatBedrockConverse (Claude Sonnet) | Claude Haiku |
+| openai | gpt-4o-mini | gpt-4o-mini |
+| anthropic | claude-sonnet-5 | claude-haiku-4-5 |
+| google | gemini-2.5-pro | gemini-2.5-flash |
+
+Generation is its own vendor axis, not a cloud-account choice (ADR-029): `llm_provider` is independent of `parse_provider`, `embed_provider` and `rerank_provider` — there's no infrastructure reason to keep them aligned, so pick whichever vendor's answers you trust this week. Azure OpenAI (`AzureChatOpenAI`) and Bedrock Converse (`ChatBedrockConverse`) adapters are archived at `.archive/providers/generation/`.
 
 ### Why these settings are uniform
 
 - **`temperature=0`** — everything here is extraction, routing or grounded answering. None of it is creative writing.
 - **`max_retries=0`** — retry policy lives in `core/resilience.py`. Leaving the SDK's own retries on as well produces compounding backoff and, under load, a retry storm.
-- **`ChatBedrockConverse` rather than `ChatBedrock`** — the Converse API normalises tool calling and multimodal input across model families. Without it, Anthropic, Meta and Amazon models each want a different request shape and the agent code would need to know which is which.
+- **Google uses the plain Gemini API key, not Vertex AI.** `ChatGoogleGenerativeAI` with `google_api_key=` — a materially different auth/billing setup than a GCP service account, and deliberately the simpler one here.
 
 ### The cheap/strong split is the main cost lever
 
@@ -513,16 +481,16 @@ Publication is the only write in the system and it sits behind that interrupt. `
 
 ### Degrade, never fail
 
-A dead warehouse produces a partial RCA marked degraded with capped confidence, not a 500. `DEGRADED_CONFIDENCE_CAP = 0.6` is enforced in code after the model returns, not left to the prompt — a degraded run cannot present itself as confident no matter what the model wrote.
+A dead Prometheus produces a partial RCA marked degraded with capped confidence, not a 500. `DEGRADED_CONFIDENCE_CAP = 0.6` is enforced in code after the model returns, not left to the prompt — a degraded run cannot present itself as confident no matter what the model wrote.
 
-### SQL safety in four layers
+### PromQL safety in four layers
 
-Generated SQL against a production warehouse is the highest-risk tool in the system:
+A query the model composes and runs against a production observability stack is the highest-risk tool in the system:
 
-1. **Parse, do not regex.** `sqlglot` builds an AST and checks the statement type on the tree. A regex looking for "DELETE" is defeated by comments, casing and string literals.
-2. **Single statement only.** Stacked queries are the classic injection vector.
-3. **Forced row limit.** An unbounded SELECT on a large fact table is a self-inflicted outage.
-4. **A database-level read-only role.** The one that actually matters — see `config/init-readonly-role.sql`. The first three are defence in depth; this is the guarantee.
+1. **Metric-name allowlist.** PromQL has no parser in the standard library, so instead of building an AST the guard extracts every identifier that looks like a metric name and requires each to be one the platform actually exposes (`ALLOWED_METRIC_PREFIXES`). An expression naming an unknown metric is rejected unrun — an allowlist of good names, not a regex looking for bad keywords.
+2. **Forbidden functions.** A short list of PromQL functions that are expensive or exfiltration-shaped (`label_replace` rewriting series, subqueries nesting range selectors) is rejected.
+3. **Forced, bounded time range.** A range query with no window, or a window wider than `settings.promql_max_range_hours`, is rejected. An unbounded range query is a self-inflicted outage on a busy Prometheus.
+4. **A read-only Prometheus HTTP endpoint.** The one that actually guarantees it. Prometheus' query API has no write path by construction — the first three layers are defence in depth, this is the guarantee.
 
 ### Result _(illustrative)_
 
@@ -540,20 +508,27 @@ Fixtures replay recorded tool output, so the suite tests reasoning rather than i
 
 ---
 
-## Cross-cutting: what changes between clouds
+## Cross-cutting: what's still multi-cloud, and what isn't (ADR-029)
+
+Only **parsing** stays a genuine local/azure/aws matrix — Azure Document Intelligence and AWS Textract each do something a local library cannot (layout models, OCR on scans):
 
 | Concern | Azure | AWS | Local |
 |---|---|---|---|
 | Parsing output | markdown, ready to chunk | flat block graph, you reassemble | native structure |
 | Multi-page parsing | inline bytes | S3 + job polling required | inline |
-| Embedding batching | hundreds per request | Titan: one per call; Cohere: 96 | unlimited |
-| Dimension reduction | Matryoshka `dimensions` | Titan `dimensions` | fixed |
-| Hybrid search | native, one call | client-side or search pipeline | one SQL statement |
-| Reranking | inside the search request | separate client, 100/call | in-process |
-| Auth | managed identity via `DefaultAzureCredential` | SigV4, `aoss` vs `es` | none |
-| Filter language | OData | bool/terms JSON | SQL |
+| Auth | managed identity via `DefaultAzureCredential` | instance role / `AWS_PROFILE` | none |
 
-The adapters exist so none of this leaks into the agent code. `rca/tools/retrieval.py` calls `RetrievalPipeline` and has no idea which cloud answered.
+Embedding, vector storage and reranking are local-first infrastructure, each with at most one paid escape hatch, not a cloud matrix:
+
+| Stage | Default | Escape hatch |
+|---|---|---|
+| embedding | local (sentence-transformers) | `openai` |
+| vector store | local (pgvector) | none |
+| reranking | local (cross-encoder) | `cohere` |
+
+Generation picks a model vendor directly — `local` / `openai` / `anthropic` / `google` — independent of every other stage's provider; there is no "which cloud account" question to answer for it.
+
+The adapter pattern exists so none of this leaks into the agent code regardless of which side of the split a stage is on. `rca/tools/retrieval.py` calls `RetrievalPipeline` and has no idea which provider answered. The Azure AI Search / OpenSearch / Bedrock mechanics this table used to compare (SigV4, OData vs. bool/terms filters, Titan's one-call-per-text limit) are preserved in `.archive/providers/`'s source, not lost, just no longer live choices in this repo.
 
 ---
 

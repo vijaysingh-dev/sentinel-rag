@@ -1,0 +1,176 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:runbook-kafka",
+      "title": "kafka runbook > Known failure modes > kafkaQueueProblems",
+      "doc_type": "runbook",
+      "score": 0.81,
+      "text": "kafkaQueueProblems. Effect: fault injected. Signature: kafka: kafka_consumergroup_lag climbing for accounting and fraud-detection; checkout produce latency up; storefront unaffected. Response: confirm the flag is set by querying flagd, then reset it."
+    },
+    {
+      "ref": "doc:runbook-email",
+      "title": "email runbook > Known failure modes > emailMemoryLeak",
+      "doc_type": "runbook",
+      "score": 0.77,
+      "text": "emailMemoryLeak. Effect: fault injected. Signature: email: email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort). Response: confirm the flag is set by querying flagd, then reset it."
+    },
+    {
+      "ref": "doc:incident-kafka-email",
+      "title": "Past incident: kafka + email \u2014 two faults overlapping",
+      "doc_type": "incident",
+      "score": 0.79,
+      "text": "Two independent feature flags were active concurrently: kafkaQueueProblems on kafka and emailMemoryLeak on email. They are separate incidents that overlapped in time, not one cascading from the other."
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:fixture0001",
+    "expr": "error ratio / duration for kafka and email",
+    "window_minutes": 30,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "kafka"
+          },
+          "first": 0.002,
+          "last": 0.34,
+          "min": 0.002,
+          "max": 0.34,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        },
+        {
+          "labels": {
+            "service_name": "email"
+          },
+          "first": 0.12,
+          "last": 0.9,
+          "min": 0.12,
+          "max": 0.9,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        }
+      ],
+      "series_count": 2
+    }
+  },
+  "find_traces": {
+    "ref": "trace:fixture0001",
+    "service": "kafka",
+    "count": 2,
+    "traces": [
+      {
+        "trace_id": "abc123def456",
+        "found": true,
+        "duration_ms": 210.0,
+        "span_count": 8,
+        "services": [
+          "kafka"
+        ],
+        "slowest_span": {
+          "service": "kafka",
+          "operation": "grpc.execute",
+          "duration_ms": 40.0,
+          "share_of_trace": 0.19
+        },
+        "error_spans": [
+          {
+            "service": "kafka",
+            "operation": "grpc.execute",
+            "message": "fault injected via flag"
+          }
+        ]
+      },
+      {
+        "trace_id": "def456abc123",
+        "found": true,
+        "duration_ms": 1840.0,
+        "span_count": 8,
+        "services": [
+          "email"
+        ],
+        "slowest_span": {
+          "service": "email",
+          "operation": "grpc.execute",
+          "duration_ms": 1600.0,
+          "share_of_trace": 0.87
+        },
+        "error_spans": []
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span."
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "kafkaQueueProblems",
+          "current_variant": "on",
+          "resting_variant": "off",
+          "active": true,
+          "value": "on"
+        },
+        {
+          "flag": "emailMemoryLeak",
+          "current_variant": "on",
+          "resting_variant": "off",
+          "active": true,
+          "value": "on"
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:6h",
+    "count": 2,
+    "changes": [
+      {
+        "ts": "2026-06-01T14:29:00+00:00",
+        "flag": "kafkaQueueProblems",
+        "event": "incident_start",
+        "variant": "on",
+        "note": ""
+      },
+      {
+        "ts": "2026-06-01T14:33:00+00:00",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "independent of the above"
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:10",
+    "count": 2,
+    "incidents": [
+      {
+        "ts": "2026-06-01T14:29:00+00:00",
+        "scenario": "kafka_fault",
+        "flag": "kafkaQueueProblems",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "scheduled fault injection"
+      },
+      {
+        "ts": "2026-06-01T14:33:00+00:00",
+        "scenario": "email_fault",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "scheduled fault injection, independent of the above"
+      }
+    ]
+  }
+}

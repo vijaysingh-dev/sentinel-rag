@@ -39,14 +39,17 @@ from sentinel.evaluation.retrieval_eval import evaluate_retrieval
 from sentinel.parsing.hybrid import HybridParser
 from sentinel.retrieval.pipeline import RetrievalPipeline
 
-# (provider, dims). None means the provider's native dimensionality.
-CONFIGURATIONS = [
-    ("local", None),
-    ("azure", 3072),
-    ("azure", 1024),
-    ("azure", 256),
-    ("aws", 1024),
-    ("aws", 256),
+# (provider, model, dims). model=None means the provider's configured default; dims=None means
+# that model's native dimensionality. Azure/Bedrock rows removed (ADR-029) — those adapters live
+# in .archive/providers/embedding/, and `ProviderUnavailable` below skips any configuration whose
+# provider isn't registered, so reviving one here is a one-line add once it's back in
+# `core/registry._SPECS`.
+CONFIGURATIONS: list[tuple[str, str | None, int | None]] = [
+    ("local", None, None),
+    ("openai", "text-embedding-3-large", 3072),
+    ("openai", "text-embedding-3-large", 1024),
+    ("openai", "text-embedding-3-large", 256),
+    ("openai", "text-embedding-3-small", None),
 ]
 
 
@@ -70,20 +73,26 @@ async def load_chunks(corpus: Path) -> list:
     return chunks
 
 
-async def bake_off(corpus: Path, golden_path: Path, configurations: list[tuple[str, int | None]]) -> list[StageResult]:
+async def bake_off(
+    corpus: Path, golden_path: Path, configurations: list[tuple[str, str | None, int | None]]
+) -> list[StageResult]:
     examples = load_golden(golden_path)
     chunks = await load_chunks(corpus)
     print(f"corpus: {len(chunks)} chunks, golden set: {len(examples)} examples\n")
 
     results: list[StageResult] = []
 
-    for provider, dims in configurations:
-        label = f"{provider}" + (f"@{dims}" if dims else "")
+    for provider, model, dims in configurations:
+        label = f"{provider}" + (f"/{model}" if model else "") + (f"@{dims}" if dims else "")
         try:
-            kwargs = {"dims": dims} if dims else {}
+            kwargs: dict = {}
+            if model:
+                kwargs["model"] = model
+            if dims:
+                kwargs["dims"] = dims
             embedder = get_provider("embedder", provider, use_cache=False, **kwargs)
         except ProviderUnavailable as exc:
-            print(f"{label:16s} unavailable — {str(exc)[:70]}")
+            print(f"{label:32s} unavailable — {str(exc)[:70]}")
             continue
 
         store = get_provider("vectorstore")
@@ -118,7 +127,7 @@ async def bake_off(corpus: Path, golden_path: Path, configurations: list[tuple[s
         )
 
         print(
-            f"{label:16s} recall@5={evaluation.metrics.get('recall@5', 0):.4f} "
+            f"{label:32s} recall@5={evaluation.metrics.get('recall@5', 0):.4f} "
             f"mrr={evaluation.metrics.get('mrr', 0):.4f} "
             f"dims={embedder.dims:5d} {index_mb:7.2f}MB "
             f"{len(chunks) / max(embed_seconds, 0.001):6.1f} chunks/s"
@@ -126,7 +135,7 @@ async def bake_off(corpus: Path, golden_path: Path, configurations: list[tuple[s
 
         if embedder.truncation_count:
             print(
-                f"                 {embedder.truncation_count} chunks were truncated — "
+                f"{'':32s} {embedder.truncation_count} chunks were truncated — "
                 f"chunk size exceeds this model's input limit"
             )
 

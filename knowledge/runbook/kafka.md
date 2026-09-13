@@ -64,3 +64,4 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 ## Past incidents
 
 - **INC-2621** (2026-07-25) — kafka degraded. Cause: `kafkaQueueProblems` fault flag active.
+- **INC-2707** (2026-08-23) — kafka + email — two faults overlapping. Cause: compound — see INC-2707.

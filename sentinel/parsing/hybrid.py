@@ -104,7 +104,9 @@ class HybridParser:
 
         if fmt in LOCAL_ONLY_FORMATS:
             log.debug("parse_route", path=str(path), route="local_only", format=fmt.value)
-            return await self._parse_with(self.local_provider, path, **kwargs)
+            doc = await self._parse_with(self.local_provider, path, **kwargs)
+            doc.meta["parse_route"] = "local_only"
+            return doc
 
         if fmt in CLOUD_PREFERRED_FORMATS and self.strategy != "single":
             log.debug("parse_route", path=str(path), route="cloud_first", format=fmt.value)

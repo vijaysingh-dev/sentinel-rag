@@ -1,0 +1,182 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:runbook-recommendation",
+      "title": "recommendation runbook > Known failure modes > recommendationCacheFailure",
+      "doc_type": "runbook",
+      "score": 0.81,
+      "text": "recommendationCacheFailure. Effect: fault injected. Signature: recommendation: recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing. Response: confirm the flag is set by querying flagd, then reset it."
+    },
+    {
+      "ref": "doc:runbook-product-catalog",
+      "title": "product-catalog runbook > Known failure modes > productCatalogFailure",
+      "doc_type": "runbook",
+      "score": 0.77,
+      "text": "productCatalogFailure. Effect: fault injected. Signature: product-catalog: product-catalog error_rate low but non-zero; errors correlate with one product; frontend PDP errors for that product only. Response: confirm the flag is set by querying flagd, then reset it."
+    },
+    {
+      "ref": "doc:incident-recommendation-product-catalog",
+      "title": "Past incident: recommendation + product-catalog \u2014 two faults overlapping",
+      "doc_type": "incident",
+      "score": 0.79,
+      "text": "Two independent feature flags were active concurrently: recommendationCacheFailure on recommendation and productCatalogFailure on product-catalog. They are separate incidents that overlapped in time, not one cascading from the other."
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:fixture0001",
+    "expr": "error ratio / duration for recommendation and product-catalog",
+    "window_minutes": 30,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "recommendation"
+          },
+          "first": 0.002,
+          "last": 0.34,
+          "min": 0.002,
+          "max": 0.34,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        },
+        {
+          "labels": {
+            "service_name": "product-catalog"
+          },
+          "first": 0.002,
+          "last": 0.34,
+          "min": 0.002,
+          "max": 0.34,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        }
+      ],
+      "series_count": 2
+    }
+  },
+  "find_traces": {
+    "ref": "trace:fixture0001",
+    "service": "recommendation",
+    "count": 2,
+    "traces": [
+      {
+        "trace_id": "abc123def456",
+        "found": true,
+        "duration_ms": 210.0,
+        "span_count": 8,
+        "services": [
+          "recommendation"
+        ],
+        "slowest_span": {
+          "service": "recommendation",
+          "operation": "grpc.execute",
+          "duration_ms": 40.0,
+          "share_of_trace": 0.19
+        },
+        "error_spans": [
+          {
+            "service": "recommendation",
+            "operation": "grpc.execute",
+            "message": "fault injected via flag"
+          }
+        ]
+      },
+      {
+        "trace_id": "def456abc123",
+        "found": true,
+        "duration_ms": 210.0,
+        "span_count": 8,
+        "services": [
+          "product-catalog"
+        ],
+        "slowest_span": {
+          "service": "product-catalog",
+          "operation": "grpc.execute",
+          "duration_ms": 40.0,
+          "share_of_trace": 0.19
+        },
+        "error_spans": [
+          {
+            "service": "product-catalog",
+            "operation": "grpc.execute",
+            "message": "fault injected via flag"
+          }
+        ]
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span."
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "recommendationCacheFailure",
+          "current_variant": "on",
+          "resting_variant": "off",
+          "active": true,
+          "value": "on"
+        },
+        {
+          "flag": "productCatalogFailure",
+          "current_variant": "on",
+          "resting_variant": "off",
+          "active": true,
+          "value": "on"
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:6h",
+    "count": 2,
+    "changes": [
+      {
+        "ts": "2026-06-01T14:29:00+00:00",
+        "flag": "recommendationCacheFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": ""
+      },
+      {
+        "ts": "2026-06-01T14:33:00+00:00",
+        "flag": "productCatalogFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "independent of the above"
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:10",
+    "count": 2,
+    "incidents": [
+      {
+        "ts": "2026-06-01T14:29:00+00:00",
+        "scenario": "recommendation_fault",
+        "flag": "recommendationCacheFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "scheduled fault injection"
+      },
+      {
+        "ts": "2026-06-01T14:33:00+00:00",
+        "scenario": "product-catalog_fault",
+        "flag": "productCatalogFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "scheduled fault injection, independent of the above"
+      }
+    ]
+  }
+}

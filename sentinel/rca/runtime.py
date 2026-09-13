@@ -13,10 +13,11 @@ uptime and costs nothing to run on every pull request.
 from __future__ import annotations
 
 import json
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 _tenant: ContextVar[str] = ContextVar("tenant_id", default="default")
 _roles: ContextVar[tuple[str, ...]] = ContextVar("roles", default=("admin",))
@@ -37,7 +38,7 @@ def current_components() -> list[str]:
 
 
 @contextmanager
-def request_context(tenant_id: str, roles: list[str], components: list[str] | None = None) -> Iterator[None]:
+def request_context(tenant_id: str, roles: list[str], components: list[str] | None = None) -> Generator[None]:
     """Binds the authenticated scope for the duration of a request."""
     tokens = [
         _tenant.set(tenant_id),
@@ -52,7 +53,7 @@ def request_context(tenant_id: str, roles: list[str], components: list[str] | No
 
 
 @contextmanager
-def fixtures(path: str | Path) -> Iterator[None]:
+def fixtures(path: str | Path) -> Generator[None]:
     """Binds recorded tool output for an eval run."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     token = _fixtures.set(data)

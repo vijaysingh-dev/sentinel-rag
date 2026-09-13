@@ -16,7 +16,7 @@ A three-provider adapter behind one interface (`BaseParser` in `parsing/base.py`
 | azure | AI Document Intelligence, `prebuilt-layout` | scanned PDF, complex/multi-column layout, borderless tables | ~$0.010/page |
 | aws | Textract, `TABLES` + `LAYOUT` features | scanned PDF, images, ruled tables | ~$0.015/page |
 
-Routing is decided per document by `hybrid.py`, using the reference-free quality score from `quality.py`. Walk one document through all three with `scripts/parsing/` — the scripts write a full trace to `outputs/<stem>/` (see [Tracing a parse](#tracing-a-parse)).
+Routing is decided per document by `hybrid.py`, using the reference-free quality score from `quality.py`. Walk one document through all three with `scripts/parsing/` — the scripts write a full trace to `outputs/parsing/<stem>/` (see [Tracing a parse](#tracing-a-parse)).
 
 ---
 
@@ -159,7 +159,7 @@ If brochures or spec-sheets were a real corpus, the fix is one of: lower the thr
 
 `quality.py` and the adapters emit structured `log` events at every decision point — format detection, the text-layer probe, handler dispatch, per-page extraction counts, the Textract layout-vs-lines reconstruction choice, the quality components, the hybrid route. They are `DEBUG` level, so `settings.debug=true` (or `LOG_LEVEL=DEBUG`) turns them on.
 
-`scripts/parsing/_trace.py` folds those events into a per-run trace using `structlog.testing.capture_logs`, interleaved with explicit `tracer.step(...)` / `tracer.note(...)` / `tracer.obj(...)` calls from the script. Each numbered script writes to `outputs/<stem>/`:
+`scripts/parsing/_trace.py` folds those events into a per-run trace using `structlog.testing.capture_logs`, interleaved with explicit `tracer.step(...)` / `tracer.note(...)` / `tracer.obj(...)` calls from the script. Each numbered script writes to `outputs/parsing/<stem>/`:
 
 | file | content |
 |---|---|
@@ -235,7 +235,7 @@ Per-format breakdown matters as much as the average. Local matches or beats both
 ## What breaks in production
 
 - **Scanned pages with no text layer.** Detected by `_pdf_has_text_layer` probing the first five pages; routed straight to cloud OCR by `CLOUD_PREFERRED_FORMATS`.
-- **A parse that scores "good enough" but lost its structure.** The quality heuristic weights structure at 20%, so a document with perfect characters and no headings can clear the threshold and never escalate — see [the failure mode the score does not catch](#the-failure-mode-the-score-does-not-catch). The trace (`outputs/<stem>/*.trace.log`) is where you see this; the heuristic alone will not tell you.
+- **A parse that scores "good enough" but lost its structure.** The quality heuristic weights structure at 20%, so a document with perfect characters and no headings can clear the threshold and never escalate — see [the failure mode the score does not catch](#the-failure-mode-the-score-does-not-catch). The trace (`outputs/parsing/<stem>/*.trace.log`) is where you see this; the heuristic alone will not tell you.
 - **Azure free-tier silently capping at 2 pages.** F0 resources analyse only the first two pages and return no error. `settings.debug` makes this an explicit, logged `pages="1-2"` cap; production (`DEBUG=false`) sends the whole document.
 - **`parse_provider=aws` with no S3 bucket.** Textract's multi-page API has no inline-bytes option. Config validation refuses this combination at startup rather than failing 20 minutes into ingestion.
 - **Tables extracted twice.** Both the local and Azure parsers exclude table regions from the text pass; Textract needs `_ids_inside_tables` to drop LINE/WORD blocks already consumed by a CELL. Without it, every table's numbers appear as a grid *and* as loose paragraph noise.

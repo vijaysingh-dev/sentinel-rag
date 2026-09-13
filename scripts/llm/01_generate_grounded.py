@@ -1,7 +1,7 @@
 """Answer a question from retrieved context, on any provider.
 
-    python scripts/llm/01_generate_grounded.py "how do I restart the calculation engine"
-    python scripts/llm/01_generate_grounded.py --provider aws "..." --no-context
+    python scripts/llm/01_generate_grounded.py "how do I restart checkout"
+    python scripts/llm/01_generate_grounded.py --provider anthropic "..." --no-context
 
 The `--no-context` flag is the useful part. It runs the identical prompt with the context stripped
 so you can see what the model invents when it has nothing to ground on. That contrast is the single
@@ -19,7 +19,7 @@ from sentinel.core.observability import configure_logging
 from sentinel.core.registry import get_provider
 from sentinel.retrieval.pipeline import RetrievalPipeline
 
-SYSTEM = """You answer questions about a financial index calculation platform using only the
+SYSTEM = """You answer questions about the Astroshop e-commerce platform's operations using only the
 provided documentation.
 
 Rules:
@@ -78,7 +78,7 @@ async def run(question: str, provider: str | None, use_context: bool, role: str)
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("question")
-    parser.add_argument("--provider", default=None, choices=["local", "azure", "aws"])
+    parser.add_argument("--provider", default=None, choices=["local", "openai", "anthropic", "google"])
     parser.add_argument("--role", default="admin")
     parser.add_argument("--no-context", action="store_true", help="run ungrounded, to see what the model invents")
     args = parser.parse_args()

@@ -41,11 +41,104 @@
 # One-time seed, or to reset the running demo back to its shipped defaults:
 #   cp app/otel-demo/src/postgresql/init.sql   ~/.local/share/sentinel-rag/runtime/postgresql/
 #   cp app/otel-demo/src/flagd/demo.flagd.json ~/.local/share/sentinel-rag/runtime/flagd/
+#   cp app/otel-demo/src/jaeger/config.yml            ~/.local/share/sentinel-rag/runtime/jaeger/
+#   cp app/otel-demo/src/jaeger/ui-config.json        ~/.local/share/sentinel-rag/runtime/jaeger/
+#   cp app/otel-demo/src/grafana/grafana.ini          ~/.local/share/sentinel-rag/runtime/grafana/
+#   cp -r app/otel-demo/src/grafana/provisioning      ~/.local/share/sentinel-rag/runtime/grafana/
+#   cp app/otel-demo/src/prometheus/prometheus-config.yaml ~/.local/share/sentinel-rag/runtime/prometheus/
+#   cp app/otel-demo/otel-config.yml ~/.local/share/sentinel-rag/runtime/product-catalog/
+#
+# jaeger/grafana/prometheus (compose.observability.yaml) hit the exact same fuseblk bind-mount
+# problem the moment this stack is started with that file layered in — discovered when
+# `make otel-demo-up` first actually ran the observability layer from this checkout; nobody had
+# exercised that combination from here before. Same fix, same reasoning as above.
+#
+# product-catalog's own ./otel-config.yml bind (compose.yaml) is the same problem again, found
+# only once product-catalog itself finally ran here (it always talked to astronomy-db before, so
+# reaching Sentinel's postgres was never the blocker — reading this file was): the OTel Go SDK's
+# `otelconf.NewSDK()` call fails to read a 0700 file it doesn't own and calls `os.Exit(1)` via its
+# own structured logger, which ships to the OTLP log pipeline rather than stdout/stderr — hence a
+# crash loop with zero `docker logs` output, confirmed by reproducing it with `compose run`.
+#
+# --- resource sharing with the global postgres/redis (see /projects/sentinel-rag/docker-compose.yml) ---
+#
+# astronomy-db (80M memory limit) and valkey-cart (20M) are both well under a size where running
+# a second Postgres and a second Redis is worth it. Both are always-on, standalone containers
+# (plain `docker run`, not compose — see CLAUDE.md/README for the exact commands), started once
+# on the `infra` Docker network and shared by this app, Sentinel, and anything else that needs a
+# Postgres or a Redis, the same way Portainer is one always-on container nothing "belongs" to.
+# So both containers are removed here (`docker compose ... up` on this file set no longer starts
+# them) and the three services that actually talked to them — product-catalog, cart,
+# otel-collector's pg_stat_statements scrape — join that `infra` network instead.
+#
+# `astronomy_db`/`astronomy_user` (init.sql, applied by hand once against the global Postgres
+# server — see `make otel-demo-up`) is its own database inside that Postgres instance, not a
+# shared schema: nothing here touches Sentinel's `sentinel` database or its ops_knowledge/langfuse
+# tables. Valkey is namespaced onto Redis logical DB 1 (Sentinel's own cache uses DB 0, see
+# sentinel/core/cache.py) via VALKEY_ADDR's `defaultDatabase=1` — set in .env.override — so cart's
+# keys can never collide with Sentinel's.
+#
+# Prerequisite: postgres and redis must already be running on the `infra` network (they're
+# always-on, so normally they just are) — product-catalog and cart depend on reaching them by
+# name, and compose does not start another project's or another mechanism's containers for you.
+networks:
+  infra:
+    name: infra
+    external: true
 
 services:
+  # Compose has no "delete a service defined in an earlier -f file" directive, so both are gated
+  # behind a profile ("disabled-by-sentinel-rag") that nothing ever activates — Compose excludes
+  # any service with a `profiles:` list unless one of its profiles is requested, which is exactly
+  # "don't start this" applied from an override layer.
   astronomy-db:
+    profiles: ["disabled-by-sentinel-rag"]
+
+  valkey-cart:
+    profiles: ["disabled-by-sentinel-rag"]
+
+  product-catalog:
+    networks:
+      - default
+      - infra
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
     volumes:
-      - /home/vijay/.local/share/sentinel-rag/runtime/postgresql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - /home/vijay/.local/share/sentinel-rag/runtime/product-catalog/otel-config.yml:/otel-config.yml
+    # `depends_on: {condition: service_healthy}` can only reference a service in this same
+    # compose project — postgres isn't part of any compose project any more, it's a standalone
+    # always-on container on the `infra` network — so the healthcheck gate upstream had on
+    # astronomy-db is dropped outright rather than replaced: postgres/redis are expected to
+    # simply already be running (that's the point of "always-on"), so there is nothing to wait on.
+    depends_on:
+      otel-collector:
+        condition: service_started
+      flagd:
+        condition: service_started
+      astronomy-db: !reset null
+
+  cart:
+    networks:
+      - default
+      - infra
+    # Same reasoning as product-catalog above: redis is a standalone always-on container, not
+    # part of this or any compose project, so there's no service to express a health-gated
+    # depends_on against — it's simply expected to already be running.
+    depends_on:
+      valkey-cart: !reset null
+      otel-collector:
+        condition: service_started
+      flagd:
+        condition: service_started
+
+  otel-collector:
+    networks:
+      - default
+      - infra
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
 
   flagd:
     volumes:
@@ -54,6 +147,20 @@ services:
   flagd-ui:
     volumes:
       - /home/vijay/.local/share/sentinel-rag/runtime/flagd:/app/data
+
+  jaeger:
+    volumes:
+      - /home/vijay/.local/share/sentinel-rag/runtime/jaeger/config.yml:/etc/jaeger/config.yml
+      - /home/vijay/.local/share/sentinel-rag/runtime/jaeger/ui-config.json:/etc/jaeger/ui-config.json
+
+  grafana:
+    volumes:
+      - /home/vijay/.local/share/sentinel-rag/runtime/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - /home/vijay/.local/share/sentinel-rag/runtime/grafana/provisioning/:/etc/grafana/provisioning/
+
+  prometheus:
+    volumes:
+      - /home/vijay/.local/share/sentinel-rag/runtime/prometheus/prometheus-config.yaml:/etc/prometheus/prometheus-config.yaml
 
   system-monitor:
     build:
@@ -65,7 +172,6 @@ services:
       # Read-only access to the Docker API is how this service reads every other container's
       # own healthcheck state instead of reimplementing gRPC/HTTP/TCP probes per service.
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    restart: unless-stopped
 
   incident-generator:
     build:
@@ -82,4 +188,3 @@ services:
     depends_on:
       flagd:
         condition: service_started
-    restart: unless-stopped

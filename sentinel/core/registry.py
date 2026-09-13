@@ -29,6 +29,12 @@ from sentinel.core.config import settings
 from sentinel.core.observability import log
 
 # stage -> provider -> "module.path:ClassName"
+#
+# Parsing keeps three real providers — Azure Document Intelligence and Textract each do something
+# a local library cannot (layout models, OCR on scans). Embedding/vectorstore/reranking dropped
+# their Azure/AWS entries in favour of local-first infra with one escape hatch each (ADR-029);
+# their old adapters live in .archive/providers/, unregistered. Generation was never a "cloud
+# account" choice to begin with and gets its own vendor set, independent of parse_provider.
 _SPECS: dict[str, dict[str, str]] = {
     "parser": {
         "local": "sentinel.parsing.local_parser:LocalParser",
@@ -37,23 +43,20 @@ _SPECS: dict[str, dict[str, str]] = {
     },
     "embedder": {
         "local": "sentinel.embedding.local_embedder:LocalEmbedder",
-        "azure": "sentinel.embedding.azure_embedder:AzureOpenAIEmbedder",
-        "aws": "sentinel.embedding.aws_embedder:BedrockEmbedder",
+        "openai": "sentinel.embedding.openai_embedder:OpenAIEmbedder",
     },
     "vectorstore": {
         "local": "sentinel.vectorstore.pgvector_store:PgVectorStore",
-        "azure": "sentinel.vectorstore.azure_search_store:AzureSearchStore",
-        "aws": "sentinel.vectorstore.opensearch_store:OpenSearchStore",
     },
     "reranker": {
         "local": "sentinel.reranking.local_reranker:CrossEncoderReranker",
-        "azure": "sentinel.reranking.azure_reranker:AzureSemanticReranker",
-        "aws": "sentinel.reranking.aws_reranker:BedrockReranker",
+        "cohere": "sentinel.reranking.cohere_reranker:CohereReranker",
     },
     "llm": {
         "local": "sentinel.generation.local_llm:LocalLLM",
-        "azure": "sentinel.generation.azure_llm:AzureLLM",
-        "aws": "sentinel.generation.aws_llm:BedrockLLM",
+        "openai": "sentinel.generation.openai_llm:OpenAILLM",
+        "anthropic": "sentinel.generation.anthropic_llm:AnthropicLLM",
+        "google": "sentinel.generation.google_llm:GoogleLLM",
     },
 }
 

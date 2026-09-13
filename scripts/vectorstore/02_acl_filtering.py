@@ -24,12 +24,12 @@ from sentinel.core.registry import get_provider
 from sentinel.core.resilience import AuthorizationViolation
 from sentinel.vectorstore.base import SearchFilter
 
-QUERY = "what went wrong with EU_TECH_50 and how do I restart the engine"
+QUERY = "what went wrong with checkout and how do I restart the service"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--provider", default=None, choices=["local", "azure", "aws"])
+    parser.add_argument("--provider", default=None, choices=["local"])
     args = parser.parse_args()
 
     configure_logging()
@@ -49,12 +49,12 @@ def main() -> int:
         print()
 
     print(
-        "Note the incident post-mortem is admin-only, and the ICE runbook is not visible to "
+        "Note the incident post-mortem is admin-only, and the checkout runbook is not visible to "
         "support. Those differences come from the filter inside the query.\n"
     )
 
-    print("component scoping — a support engineer scoped to data-feed only:")
-    filters = SearchFilter(roles=["support"], components=["data-feed"], tenant_id="default")
+    print("component scoping — a support engineer scoped to checkout only:")
+    filters = SearchFilter(roles=["support"], components=["checkout"], tenant_id="default")
     for item in store.hybrid_search(QUERY, vector, 10, filters):
         print(f"    {item.chunk.doc_type:12s} {item.chunk.heading_path} {item.chunk.components}")
 
