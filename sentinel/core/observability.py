@@ -24,7 +24,7 @@ import os
 import random
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -176,7 +176,7 @@ def hash_user(user_id: str) -> str:
 
 
 @contextmanager
-def stage_timer(stage: str, provider: str = "-", **fields: Any) -> Iterator[dict]:
+def stage_timer(stage: str, provider: str = "-", **fields: Any) -> Generator[dict]:
     """Times a stage, records latency and errors, and yields a dict for extra fields.
 
     Anything the caller writes into the yielded dict is emitted on the completion log line, which

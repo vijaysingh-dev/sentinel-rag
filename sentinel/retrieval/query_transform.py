@@ -111,8 +111,8 @@ async def hyde(question: str, llm: Any) -> str:
 async def decompose(question: str, llm: Any) -> list[str]:
     """Splits a multi-hop question into independently retrievable sub-questions.
 
-    "How does the divisor adjustment differ between special dividends and spin-offs?" is two
-    lookups and a comparison, not one search.
+    "How does the retry behavior differ between the checkout and payment services under the
+    paymentFailure flag?" is two lookups and a comparison, not one search.
     """
     try:
         response = await llm.ainvoke(DECOMPOSE_PROMPT.format(question=question))

@@ -32,8 +32,8 @@ from sentinel.core.types import Block, BlockType, ParsedDocument
 # Below this pixel area a region is almost certainly a logo, icon or ruling line.
 MIN_FIGURE_AREA = 120 * 120
 
-FIGURE_PROMPT = """This is a figure from technical documentation for a financial index calculation
-and distribution platform.
+FIGURE_PROMPT = """This is a figure from technical documentation for a microservices e-commerce
+platform (the OpenTelemetry Demo, themed here as Astroshop).
 
 Describe it as searchable text:
 - Name every component, label and annotation visible in the figure.

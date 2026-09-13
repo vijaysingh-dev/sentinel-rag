@@ -240,7 +240,7 @@ Walks `doc.blocks` in reading order, maintaining `stack: dict[level → heading 
 
 > A chunk reading *"Set this to false to skip validation"* is unretrievable — no realistic query lands near it in embedding space.
 >
-> The same chunk embedded as *"ICE Configuration > Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of queries.
+> The same chunk embedded as *"Checkout Configuration > Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of queries.
 
 The prefix costs a handful of tokens and typically buys more recall than upgrading the embedding model — because it turns unretrievable fragments into findable ones.
 
@@ -276,7 +276,7 @@ Per section: join the block text, `split_sentences`, then for each sentence `i`:
 
 Each entry: `embed_text = f"Glossary term: {term}\n{body}"`, `context_text = f"**{term}** — {body}"`, `heading_path = term`, `doc_type="glossary"` pinned. Entries with an empty body are skipped.
 
-**Assumption:** glossary entries are atomic. Merging "divisor" and "rebalance" into one 500-token chunk makes *both* harder to find, because the vector now represents an average of two unrelated concepts.
+**Assumption:** glossary entries are atomic. Merging "burn rate" and "error budget" into one 500-token chunk makes *both* harder to find, because the vector now represents an average of two unrelated concepts.
 
 ### `semantic` — cut where meaning shifts, not where the token count runs out
 

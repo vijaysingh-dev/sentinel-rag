@@ -25,15 +25,15 @@ from sentinel.core.registry import get_provider
 from sentinel.vectorstore.base import SearchFilter
 
 QUERIES = [
-    "which dividends do NOT require a divisor adjustment",
-    "how do I safely bring the calculation engine back online",
-    "how long before a late feed suspends publication",
+    "which fault flags do NOT require a rolling restart to clear",
+    "how do I safely bring checkout back online",
+    "how long before a stuck queue triggers escalation",
 ]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--provider", default=None, choices=["local", "azure", "aws"])
+    parser.add_argument("--provider", default=None, choices=["local", "cohere"])
     parser.add_argument("--k", type=int, default=10, help="candidate pool size")
     parser.add_argument("--top-n", type=int, default=3)
     args = parser.parse_args()

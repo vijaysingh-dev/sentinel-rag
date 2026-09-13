@@ -4,7 +4,7 @@ The demo scripts print a summary to the terminal. That is enough to answer "did 
 but not "what did each step actually produce" — which is the question you are asking when
 you have been handed the parsing stage and told to improve it.
 
-This module writes three artefacts per run to ``outputs/<source-stem>/``:
+This module writes three artefacts per run to ``outputs/parsing/<source-stem>/``:
 
 ``<provider>.trace.log``
     A step-by-step, human-readable log of the parse: format detection and the text-layer
@@ -96,7 +96,7 @@ class ParseTracer:
     def __init__(self, source_path: str | Path, provider: str):
         self.source_path = Path(source_path)
         self.provider = provider
-        self.out_dir = OUTPUT_ROOT / self.source_path.stem
+        self.out_dir = OUTPUT_ROOT / "parsing" / self.source_path.stem
         self._lines: list[str] = []
         self._t0 = time.perf_counter()
         self._captured: list[dict[str, Any]] = []

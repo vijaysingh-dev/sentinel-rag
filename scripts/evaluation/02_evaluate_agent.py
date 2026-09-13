@@ -81,13 +81,20 @@ def _make_runner(graph):
 
 
 def _finding_names_root_cause(state: dict, ground_truth: dict) -> bool:
+    """True if the draft names every real cause. For a `single`/`organic` case that is one
+    service; for a `compound` case (two independent faults, see gen_incidents.py) the finding
+    must name both — mentioning only the one that happened to page first is exactly the
+    incomplete-investigation failure these fixtures exist to catch."""
     draft = state.get("draft")
     if draft is None:
         return False
     text = " ".join(
         str(getattr(draft, f, "") or "") for f in ("summary", "root_cause", "cause", "recommendation")
     ).lower()
-    return ground_truth["root_cause_service"] in text or ground_truth["root_cause_flag"].lower() in text
+    causes = ground_truth.get("causes") or [
+        {"service": ground_truth["root_cause_service"], "flag": ground_truth["root_cause_flag"]}
+    ]
+    return all((c["service"] in text) or (c["flag"] is not None and c["flag"].lower() in text) for c in causes)
 
 
 async def run(args: argparse.Namespace) -> int:

@@ -49,3 +49,7 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 - Confirm `pg_stat_database_xact_commit` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.
+
+## Past incidents
+
+- **INC-2774** (2026-09-07) — astronomy-db connection pool exhaustion. Cause: no fault flag — see post-mortem.

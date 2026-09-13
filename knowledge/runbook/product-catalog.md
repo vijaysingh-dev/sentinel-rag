@@ -65,3 +65,4 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 ## Past incidents
 
 - **INC-2628** (2026-06-16) — product-catalog returning errors. Cause: `productCatalogFailure` fault flag active.
+- **INC-2714** (2026-08-26) — recommendation + product-catalog — two faults overlapping. Cause: compound — see INC-2714.

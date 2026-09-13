@@ -1,14 +1,28 @@
 """Configuration.
 
-One settings object covers all three providers. The alternative — a settings class per cloud —
-looks tidier but forces provider knowledge into every call site, which is exactly what the adapter
-pattern exists to prevent.
+One settings object, but **no shared `Provider` type any more.** Each stage got its own literal —
+`ParseProvider`, `EmbedProvider`, `VectorProvider`, `RerankProvider`, `LLMProvider` — because the
+stages stopped sharing a provider set. That was a real design shift (2026-09), not a rename:
 
-Provider selection is per *stage*, not global. That is deliberate: a realistic deployment might
-parse with Azure Document Intelligence (best layout model), embed with Bedrock Titan (already in
-the AWS account), and rerank locally (no per-query cost). Forcing one cloud for the whole pipeline
-would make that impossible to express, and it is a genuinely common shape in regulated
-environments where different data classes have different residency rules.
+* **Parsing stays genuinely multi-cloud.** Azure Document Intelligence and AWS Textract each do
+  something a free local library cannot (layout models, OCR on scans), so both are worth keeping
+  live and comparable. `ParseProvider = Literal["local", "azure", "aws"]`, unchanged.
+* **Embedding, vector storage and reranking are local-first infrastructure**, not a cloud choice.
+  Running your own pgvector and a local embedding/reranking model costs nothing per query and is
+  not meaningfully worse than the managed equivalents for a corpus this size — the honest
+  reasoning behind dropping Azure AI Search / OpenSearch / Bedrock embedding / Bedrock rerank as
+  maintained paths (moved to `.archive/providers/`, ADR-029). Embedding keeps one escape hatch
+  (`openai`, flag, default `local`); reranking keeps one (`cohere`, flag, default `local`).
+* **Generation is its own axis, not a cloud-account choice.** None of OpenAI, Anthropic or Google
+  correspond to "the Azure account" or "the AWS account" the way Bedrock and Azure OpenAI used to
+  — a model vendor is not the same kind of decision as which parser to hit, so it gets its own
+  literal, `LLMProvider = Literal["local", "openai", "anthropic", "google"]`, selected
+  independently of `parse_provider`.
+
+Provider selection is still per *stage*: a realistic setup here is parse with AWS Textract (already
+have the bucket), embed and rerank locally (no per-query cost, no reason to pay for something
+local models already do adequately), and generate with Anthropic (whichever vendor's answers you
+trust most that week). Four independent settings express that; one shared enum could not.
 """
 
 from __future__ import annotations
@@ -19,7 +33,11 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-Provider = Literal["local", "azure", "aws"]
+ParseProvider = Literal["local", "azure", "aws"]
+EmbedProvider = Literal["local", "openai"]
+VectorProvider = Literal["local"]
+RerankProvider = Literal["local", "cohere"]
+LLMProvider = Literal["local", "openai", "anthropic", "google"]
 
 
 class Settings(BaseSettings):
@@ -28,11 +46,11 @@ class Settings(BaseSettings):
     )
 
     # ---------------------------------------------------------------- stage provider selection
-    parse_provider: Provider = "local"
-    embed_provider: Provider = "local"
-    vectorstore_provider: Provider = "local"
-    rerank_provider: Provider = "local"
-    llm_provider: Provider = "local"
+    parse_provider: ParseProvider = "local"
+    embed_provider: EmbedProvider = "local"
+    vectorstore_provider: VectorProvider = "local"
+    rerank_provider: RerankProvider = "local"
+    llm_provider: LLMProvider = "openai"
 
     # Hybrid parsing runs the local parser first and escalates to the cloud only when the local
     # output looks poor. On a corpus of native-text PDFs this avoids paying per page for documents
@@ -40,15 +58,9 @@ class Settings(BaseSettings):
     parse_strategy: Literal["single", "hybrid_escalate", "hybrid_merge", "race"] = "hybrid_escalate"
     parse_quality_threshold: float = 0.72
 
-    # ---------------------------------------------------------------------------------- Azure
-    azure_openai_endpoint: str = ""
-    azure_openai_api_key: str = ""
-    azure_openai_api_version: str = "2024-10-21"
-    azure_chat_deployment: str = "gpt-4o"
-    azure_chat_cheap_deployment: str = "gpt-4o-mini"
-    azure_embedding_deployment: str = "text-embedding-3-large"
-    azure_embedding_dims: int = 3072
-
+    # ------------------------------------------------------------------------- Azure (parsing only)
+    # Azure OpenAI, Azure AI Search and Bedrock are gone as maintained paths (ADR-029); what's left
+    # here is exactly what parse_provider=azure needs, nothing else.
     azure_doc_intelligence_endpoint: str = ""
     azure_doc_intelligence_key: str = ""
     azure_doc_intelligence_model: str = "prebuilt-layout"
@@ -59,28 +71,13 @@ class Settings(BaseSettings):
     # Set to 0 to disable batching even in debug mode. Ignored entirely when `debug` is false.
     azure_di_dev_page_limit: int = 2
 
-    azure_search_endpoint: str = ""
-    azure_search_key: str = ""
-    azure_search_index: str = "sentinel-knowledge"
-    azure_search_semantic_config: str = "semantic-config"
-
-    # ------------------------------------------------------------------------------------ AWS
+    # ------------------------------------------------------------------------------ AWS (parsing only)
     aws_region: str = "us-east-1"
     aws_profile: str = ""
-
-    bedrock_chat_model: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-    bedrock_chat_cheap_model: str = "anthropic.claude-3-5-haiku-20241022-v1:0"
-    bedrock_embedding_model: str = "amazon.titan-embed-text-v2:0"
-    bedrock_embedding_dims: int = 1024
-    bedrock_rerank_model: str = "amazon.rerank-v1:0"
 
     textract_s3_bucket: str = ""  # required for async multi-page analysis
     textract_s3_prefix: str = "sentinel/textract/"
     textract_features: list[str] = Field(default_factory=lambda: ["TABLES", "LAYOUT"])
-
-    opensearch_endpoint: str = ""
-    opensearch_index: str = "sentinel-knowledge"
-    opensearch_serverless: bool = True
 
     # ---------------------------------------------------------------------------------- local
     local_embedding_model: str = "BAAI/bge-base-en-v1.5"
@@ -92,6 +89,30 @@ class Settings(BaseSettings):
 
     pgvector_dsn: str = "postgresql+psycopg://sentinel:sentinel@localhost:5432/sentinel"
     pgvector_collection: str = "ops_knowledge"
+
+    # -------------------------------------------------------------------------- OpenAI (embed/llm)
+    # Plain api.openai.com — not Azure OpenAI, which no longer exists in this codebase (ADR-029).
+    # One key, used by whichever of embed_provider/llm_provider is set to "openai"; either, both,
+    # or neither can select it independently.
+    openai_api_key: str = ""
+    openai_chat_model: str = "gpt-4o"
+    openai_cheap_model: str = "gpt-4o-mini"
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dims: int = 1536
+
+    # ------------------------------------------------------------------------------- Anthropic (llm)
+    anthropic_api_key: str = ""
+    anthropic_chat_model: str = "claude-sonnet-5"
+    anthropic_cheap_model: str = "claude-haiku-4-5-20251001"
+
+    # ---------------------------------------------------------------------------------- Google (llm)
+    google_api_key: str = ""
+    google_chat_model: str = "gemini-2.5-pro"
+    google_cheap_model: str = "gemini-2.5-flash"
+
+    # ------------------------------------------------------------------------------- Cohere (rerank)
+    cohere_api_key: str = ""
+    cohere_rerank_model: str = "rerank-v3.5"
 
     # ----------------------------------------------------------------------------- retrieval
     retrieve_k: int = 50  # candidate pool; wide for recall
@@ -160,16 +181,14 @@ class Settings(BaseSettings):
         """
         return {
             "local": self.local_embedding_dims,
-            "azure": self.azure_embedding_dims,
-            "aws": self.bedrock_embedding_dims,
+            "openai": self.openai_embedding_dims,
         }[self.embed_provider]
 
     @property
     def embedding_model(self) -> str:
         return {
             "local": self.local_embedding_model,
-            "azure": self.azure_embedding_deployment,
-            "aws": self.bedrock_embedding_model,
+            "openai": self.openai_embedding_model,
         }[self.embed_provider]
 
     @property
@@ -199,24 +218,28 @@ class Settings(BaseSettings):
     def _check_provider_prerequisites(self) -> Settings:
         """Fails fast on a provider selected without its credentials.
 
-        Discovering a missing endpoint after a twenty-minute ingestion run is a bad trade for the
+        Discovering a missing key after a twenty-minute ingestion run is a bad trade for the
         three lines it takes to check up front.
         """
         problems: list[str] = []
         if self.parse_provider == "azure" and not self.azure_doc_intelligence_endpoint:
             problems.append("parse_provider=azure requires azure_doc_intelligence_endpoint")
-        if self.embed_provider == "azure" and not self.azure_openai_endpoint:
-            problems.append("embed_provider=azure requires azure_openai_endpoint")
-        if self.vectorstore_provider == "azure" and not self.azure_search_endpoint:
-            problems.append("vectorstore_provider=azure requires azure_search_endpoint")
-        if self.vectorstore_provider == "aws" and not self.opensearch_endpoint:
-            problems.append("vectorstore_provider=aws requires opensearch_endpoint")
         # Textract's multi-page path reads from S3 — there is no inline-bytes option. A
         # single-page doc still works bucket-less, but a knowledge corpus is almost never
         # single-page, so treat the missing bucket as a configuration error rather than a
         # surprise ParseFailure partway through ingestion.
         if self.parse_provider == "aws" and not self.textract_s3_bucket:
             problems.append("parse_provider=aws requires textract_s3_bucket (async Textract reads from S3)")
+        if self.embed_provider == "openai" and not self.openai_api_key:
+            problems.append("embed_provider=openai requires openai_api_key")
+        if self.rerank_provider == "cohere" and not self.cohere_api_key:
+            problems.append("rerank_provider=cohere requires cohere_api_key")
+        if self.llm_provider == "openai" and not self.openai_api_key:
+            problems.append("llm_provider=openai requires openai_api_key")
+        if self.llm_provider == "anthropic" and not self.anthropic_api_key:
+            problems.append("llm_provider=anthropic requires anthropic_api_key")
+        if self.llm_provider == "google" and not self.google_api_key:
+            problems.append("llm_provider=google requires google_api_key")
         if problems:
             raise ValueError("configuration errors:\n  - " + "\n  - ".join(problems))
         return self

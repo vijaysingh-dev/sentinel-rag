@@ -39,8 +39,9 @@ def main() -> int:
                 print(f"    unavailable {info.name:8s} {info.reason[:70]}")
 
     print(
-        "\nUnavailable providers are only a problem if you intend to use them. "
-        "Install extras with: pip install -e '.[azure]' or '.[aws]'"
+        "\nUnavailable providers are only a problem if you intend to use them. Install extras "
+        "with: pip install -e '.[azure]' (parsing), '.[aws]' (parsing) or '.[inference]' "
+        "(openai/anthropic/google/cohere)."
     )
     return 0
 

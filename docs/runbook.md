@@ -112,7 +112,7 @@ Also check `no_chunks_produced` warnings: the document parsed but produced nothi
 ## An investigation is stuck
 
 ```bash
-curl localhost:8080/v1/investigations/ANOM-11204
+curl localhost:8080/v1/investigations/INC-2607
 ```
 
 | `outcome` | Meaning | Action |
@@ -136,7 +136,7 @@ log.error("breaker_opened", service=..., failures=...)
 
 Expected behaviour when a dependency is genuinely down. The breaker probes once after the cooldown.
 
-An open breaker is itself useful information in an operations assistant: "I cannot reach the calculation engine, which may itself indicate a problem" is a better answer than a generic error and better than a thirty-second wait for the same conclusion.
+An open breaker is itself useful information in an operations assistant: "I cannot reach Prometheus, which may itself indicate a problem" is a better answer than a generic error and better than a thirty-second wait for the same conclusion.
 
 If a breaker opens repeatedly without the dependency being down, `breaker_threshold` may be too low for normal error rates, or the timeout too tight.
 

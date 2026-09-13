@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sentinel-rag"
 version = "2.0.0"
-description = "Multi-cloud RAG pipeline and multi-agent RCA system for an index calculation platform"
+description = "RAG pipeline (multi-cloud parsing, local-first embed/store/rerank) and multi-agent RCA system"
 requires-python = "==3.12.*"
 
 dependencies = [
@@ -25,7 +25,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Local pipeline: parse, embed, store, rerank and generate with no cloud account at all.
+# Local pipeline: parse, embed, store and rerank with no cloud account at all. Also carries
+# langchain-openai, since that SDK is shared by local-vs-OpenAI-embedding code paths and by the
+# `inference` extra below — installing `local` alone does not select OpenAI anywhere, config does.
 local = [
     "pdfplumber>=0.11",
     "pypdf>=5.1",
@@ -33,25 +35,34 @@ local = [
     "python-pptx>=1.0",
     "openpyxl>=3.1",
     "beautifulsoup4>=4.12",
-    "sentence-transformers>=3.2",
+    "sentence-transformers>=5.0",
     "psycopg[binary,pool]>=3.2",
     "langchain-openai>=0.2.5",
     "redis>=5.2",
 ]
 
+# Parsing only (ADR-029): Azure Document Intelligence. Azure OpenAI, Azure AI Search and their
+# SDKs are gone from this repo — see .archive/providers/.
 azure = [
     "azure-ai-documentintelligence>=1.0.0",
-    "azure-search-documents>=11.6.0b4",
     "azure-identity>=1.19",
-    "openai>=1.54",
-    "langchain-openai>=0.2.5",
 ]
 
+# Parsing only (ADR-029): AWS Textract. Bedrock and OpenSearch are gone from this repo — see
+# .archive/providers/.
 aws = [
     "boto3>=1.35",
-    "opensearch-py>=2.7",
-    "requests-aws4auth>=1.3",
-    "langchain-aws>=0.2.6",
+]
+
+# The three inference vendors embed_provider/rerank_provider/llm_provider can select, plus local's
+# langchain-openai. One extra because picking any one of them for evaluation or a bake-off usually
+# means wanting to compare against the others.
+inference = [
+    "openai>=1.54",
+    "langchain-openai>=0.2.5",
+    "langchain-anthropic>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+    "cohere>=5.13",
 ]
 
 observability = [
@@ -84,7 +95,7 @@ corpus = [
     "pyyaml>=6.0",
 ]
 
-all = ["sentinel-rag[local,azure,aws,observability,dev,corpus,chat]"]
+all = ["sentinel-rag[local,azure,aws,inference,observability,dev,corpus,chat]"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["sentinel"]

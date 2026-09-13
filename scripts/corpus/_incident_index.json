@@ -19,6 +19,14 @@
       "title": "ad CPU/GC saturation, elevated latency"
     }
   ],
+  "astronomy-db": [
+    {
+      "cause": "no fault flag \u2014 see post-mortem",
+      "date": "2026-09-07",
+      "id": "INC-2774",
+      "title": "astronomy-db connection pool exhaustion"
+    }
+  ],
   "cart": [
     {
       "cause": "`cartFailure` fault flag active",
@@ -33,12 +41,26 @@
       "title": "cart taken out of rotation by a failing readiness probe"
     }
   ],
+  "currency": [
+    {
+      "cause": "no fault flag \u2014 see post-mortem",
+      "date": "2026-09-03",
+      "id": "INC-2767",
+      "title": "currency elevated latency after a deploy"
+    }
+  ],
   "email": [
     {
       "cause": "`emailMemoryLeak` fault flag active",
       "date": "2026-08-13",
       "id": "INC-2677",
       "title": "email memory growth and restarts"
+    },
+    {
+      "cause": "compound \u2014 see INC-2707",
+      "date": "2026-08-23",
+      "id": "INC-2707",
+      "title": "kafka + email \u2014 two faults overlapping"
     }
   ],
   "frontend": [
@@ -55,6 +77,12 @@
       "date": "2026-07-25",
       "id": "INC-2621",
       "title": "kafka degraded"
+    },
+    {
+      "cause": "compound \u2014 see INC-2707",
+      "date": "2026-08-23",
+      "id": "INC-2707",
+      "title": "kafka + email \u2014 two faults overlapping"
     }
   ],
   "payment": [
@@ -77,6 +105,12 @@
       "date": "2026-06-16",
       "id": "INC-2628",
       "title": "product-catalog returning errors"
+    },
+    {
+      "cause": "compound \u2014 see INC-2714",
+      "date": "2026-08-26",
+      "id": "INC-2714",
+      "title": "recommendation + product-catalog \u2014 two faults overlapping"
     }
   ],
   "recommendation": [
@@ -85,6 +119,12 @@
       "date": "2026-06-19",
       "id": "INC-2656",
       "title": "recommendation cache disabled, upstream fan-out spike"
+    },
+    {
+      "cause": "compound \u2014 see INC-2714",
+      "date": "2026-08-26",
+      "id": "INC-2714",
+      "title": "recommendation + product-catalog \u2014 two faults overlapping"
     }
   ],
   "shipping": [

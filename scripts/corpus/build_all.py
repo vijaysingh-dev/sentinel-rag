@@ -23,7 +23,8 @@ sys.path.insert(0, str(HERE))
 
 from _model import KNOWLEDGE, REPO_ROOT  # noqa: E402
 
-# order matters: incidents writes _incident_index.json, runbooks reads it.
+# order matters: incidents writes _incident_index.json and _incident_truth.jsonl; runbooks,
+# gen_playbook's deploy history, and gen_incident_review all read one or the other of those.
 GENERATORS = [
     "gen_incidents",
     "gen_runbooks",
@@ -31,6 +32,8 @@ GENERATORS = [
     "gen_adr",
     "gen_glossary",
     "gen_reference",
+    "gen_playbook",
+    "gen_incident_review",
     "gen_messy",
     "gen_restricted",
     "gen_ground_truth",

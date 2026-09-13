@@ -18,14 +18,14 @@ import numpy as np
 from sentinel.core.observability import configure_logging
 from sentinel.embedding.local_embedder import QUERY_PREFIXES, LocalEmbedder
 
-QUERY = "how do I restart the calculation engine"
+QUERY = "how do I restart the checkout service"
 PASSAGE = (
-    "ICE Restart Procedure. Drain the input queue, wait for in-flight calculations to complete, "
-    "then issue a rolling restart across the calculation nodes one region at a time."
+    "Checkout Restart Procedure. Drain in-flight requests from the load balancer, wait for open "
+    "orders to finish processing, then issue a rolling restart across replicas one at a time."
 )
 DISTRACTOR = (
-    "Exchange delivery latency SLO is 250ms at p99, measured from index publication to the "
-    "exchange gateway acknowledgement."
+    "Checkout's latency SLO is 250ms at p99, measured from cart submission to order "
+    "confirmation acknowledgement."
 )
 
 

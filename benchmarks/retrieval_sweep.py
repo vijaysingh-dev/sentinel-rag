@@ -74,7 +74,7 @@ def main() -> int:
     results.append(run_config(examples, "hybrid, no rerank", {"k": 50, "top_n": 5, "rerank": False}, reranker=None))
 
     print("\nreranker providers")
-    for provider in ("local", "azure", "aws"):
+    for provider in ("local", "cohere"):
         try:
             reranker = get_provider("reranker", provider)
         except ProviderUnavailable as exc:

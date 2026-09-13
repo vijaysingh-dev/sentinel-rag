@@ -39,10 +39,12 @@ the comparison has a number to anchor on.
 
 The ``NN`` is the strategy's position in ``--strategies`` (default order below is build order).
 
-``outputs/chunking/leaderboard.md``
-    The ``chunks/doc`` table across the whole run. Read it next to the recall column of
-    ``benchmarks/chunking_sweep.py`` — more chunks is not better, it inflates the index and
-    crowds the top-k with near-duplicates.
+``outputs/_leaderboards/chunking.md``
+    The ``chunks/doc`` table across the whole run. Lives outside any single document's
+    ``outputs/chunking/<doc-stem>/`` folder because it isn't about one document — every other
+    artefact here follows the ``outputs/<stage>/<doc-stem>/...`` convention. Read it next to the
+    recall column of ``benchmarks/chunking_sweep.py`` — more chunks is not better, it inflates the
+    index and crowds the top-k with near-duplicates.
 
 Note on ``fixed``/``recursive`` and the short documents: ``size`` is measured in **tokens**,
 not characters (``ntokens`` uses tiktoken ``cl100k_base``, ~4 chars/token for English prose).
@@ -74,7 +76,8 @@ from sentinel.core.observability import configure_logging
 from sentinel.core.types import Chunk, ParsedDocument
 from sentinel.parsing.local_parser import LocalParser
 
-OUTPUT_ROOT = Path("outputs/chunking")
+OUTPUT_ROOT = Path("outputs")
+LEADERBOARD_ROOT = Path("outputs/_leaderboards")
 
 # The strategies this script compares: everything that needs neither a live embedder (semantic)
 # nor a live LLM (contextual), minus the two chosen by document type rather than benchmarked
@@ -207,7 +210,7 @@ def process_doc(
     path: str, doc_type: str, strategies: list[str], size: int | None, overlap: int | None
 ) -> dict[str, int]:
     doc = parse(path, doc_type)
-    out_dir = OUTPUT_ROOT / Path(path).stem
+    out_dir = OUTPUT_ROOT / "chunking" / Path(path).stem
     out_dir.mkdir(parents=True, exist_ok=True)
 
     preamble = [
@@ -283,12 +286,12 @@ def main() -> int:
     for strategy in strategies:
         vals = leaderboard[strategy]
         lines.append(f"| `{strategy}` | {sum(vals)} | {statistics.fmean(vals):.1f} | {min(vals)} | {max(vals)} |")
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    (OUTPUT_ROOT / "leaderboard.md").write_text("\n".join(lines) + "\n")
+    LEADERBOARD_ROOT.mkdir(parents=True, exist_ok=True)
+    (LEADERBOARD_ROOT / "chunking.md").write_text("\n".join(lines) + "\n")
 
     print(
-        f"\nwrote {OUTPUT_ROOT}/  —  <doc>/00_document.log  +  <doc>/NN_<strategy>.log"
-        f"  +  <doc>/NN_<strategy>.chunks.jsonl  +  leaderboard.md"
+        f"\nwrote {OUTPUT_ROOT}/chunking/<doc>/  —  00_document.log  +  NN_<strategy>.log"
+        f"  +  NN_<strategy>.chunks.jsonl\nwrote {LEADERBOARD_ROOT}/chunking.md"
     )
     return 0
 

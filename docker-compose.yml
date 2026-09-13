@@ -1,38 +1,34 @@
 # Local development stack. Nothing here is required for the cloud providers — it exists so the
 # entire pipeline can be run and benchmarked on a laptop with no Azure or AWS account.
+#
+# postgres and redis are NOT defined here any more — they moved to a standalone, always-on
+# global layer (plain `docker run`, not compose; started once, outside any project, alongside
+# Portainer) shared by this app and otel-demo. Reasoning: idle, they cost ~57MB combined and
+# near-zero CPU (measured via `docker stats`), too small to be worth stopping and starting per
+# project, whereas everything below (langfuse) and everything in otel-demo/ is a real app you
+# start only while working on it. Run `docker network create infra` once, then start postgres and
+# redis on it, before `docker compose up` here — see the project README/CLAUDE.md for the exact
+# commands. `make up` no longer manages postgres/redis; it only checks they're reachable.
+
+name: sentinel-rag
+
+networks:
+  # The always-on global network postgres/redis/portainer live on — created once, independent of
+  # this project, via `docker network create infra`. `external: true` because compose must never
+  # try to create or own a network it doesn't start the containers on.
+  infra:
+    name: infra
+    external: true
 
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_USER: sentinel
-      POSTGRES_PASSWORD: sentinel
-      POSTGRES_DB: sentinel
-    ports: ["5432:5432"]
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./config/init-readonly-role.sql:/docker-entrypoint-initdb.d/10-readonly.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sentinel"]
-      interval: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
-
   # Trace explorer. Optional, but the first thing you want when an agent misbehaves.
   langfuse:
     image: langfuse/langfuse:2
-    depends_on:
-      postgres: {condition: service_healthy}
+    networks:
+      - infra
     ports: ["3000:3000"]
     environment:
       DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinel
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: dev-secret-not-for-production
       SALT: dev-salt-not-for-production
-
-volumes:
-  pgdata:

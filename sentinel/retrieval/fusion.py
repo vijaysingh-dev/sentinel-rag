@@ -35,7 +35,7 @@ def reciprocal_rank_fusion(
     scores: dict[str, float] = {}
     best: dict[str, RetrievedChunk] = {}
 
-    for ranking, weight in zip(rankings, weights):
+    for ranking, weight in zip(rankings, weights, strict=True):
         for rank, item in enumerate(ranking, start=1):
             cid = item.chunk.chunk_id
             scores[cid] = scores.get(cid, 0.0) + weight / (k + rank)

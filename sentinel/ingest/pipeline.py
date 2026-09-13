@@ -21,8 +21,10 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from sentinel.chunking.strategies import chunker_for_doc
 from sentinel.core.config import settings
@@ -99,7 +101,17 @@ class IngestionPipeline:
         doc_type: str = "page",
         tenant_id: str = "default",
         chunk_strategy: str | None = None,
+        on_stage: Callable[[str, Any], None] | None = None,
     ) -> IngestStats:
+        """
+        Args:
+            on_stage: Optional hook invoked as `on_stage(stage, value)` right after each stage
+                produces its real object — `("parsed", ParsedDocument)`, `("chunked", list[Chunk])`,
+                `("written", IngestStats)` — for callers that want more than the aggregate
+                `IngestStats` this method returns (`scripts/ingest/01_ingest_traced.py` uses it to
+                write per-document trace artefacts). `None` by default and never called on the
+                normal path, so `make ingest` pays nothing for it.
+        """
         path = Path(path)
         stats = IngestStats()
         started = time.perf_counter()
@@ -112,6 +124,8 @@ class IngestionPipeline:
                 {"path": str(path), "stage": "parse", "error": type(exc).__name__, "detail": str(exc)[:300]}
             )
             return stats
+        if on_stage:
+            on_stage("parsed", doc)
 
         route = doc.meta.get("parse_route", "unknown")
         stats.parse_routes[route] = stats.parse_routes.get(route, 0) + 1
@@ -131,6 +145,8 @@ class IngestionPipeline:
         if not chunks:
             log.warning("no_chunks_produced", path=str(path), quality=doc.metrics.quality_score)
             return stats
+        if on_stage:
+            on_stage("chunked", chunks)
 
         roles, components = self.acl.resolve(doc.source_uri, doc.doc_type, doc.meta)
         for chunk in chunks:
@@ -140,6 +156,8 @@ class IngestionPipeline:
         stats.merge(self._write(doc, chunks))
         stats.documents = 1
         stats.duration_s = time.perf_counter() - started
+        if on_stage:
+            on_stage("written", stats)
 
         log.info(
             "document_ingested",

@@ -21,7 +21,6 @@ services:
       resources:
         limits:
           memory: 160M
-    restart: unless-stopped
     environment:
       - KAFKA_ADDR
       - KAFKA_TOPIC
@@ -57,7 +56,6 @@ services:
       resources:
         limits:
           memory: 300M
-    restart: unless-stopped
     environment:
       - FLAGD_HOST
       - FLAGD_PORT
@@ -98,7 +96,6 @@ services:
       resources:
         limits:
           memory: 620M
-    restart: unless-stopped
     environment:
       - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${KAFKA_HOST}:9092
       - KAFKA_LISTENERS=PLAINTEXT://${KAFKA_HOST}:9092,CONTROLLER://${KAFKA_HOST}:9093

@@ -64,3 +64,4 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 ## Past incidents
 
 - **INC-2677** (2026-08-13) — email memory growth and restarts. Cause: `emailMemoryLeak` fault flag active.
+- **INC-2707** (2026-08-23) — kafka + email — two faults overlapping. Cause: compound — see INC-2707.
