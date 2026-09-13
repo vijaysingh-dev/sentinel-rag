@@ -226,9 +226,9 @@ async def with_retry[T](
 class CircuitBreaker:
     """Stops hammering a dependency that is clearly down, then probes once after a cooldown.
 
-    An open breaker is itself useful information in an operations assistant: "I cannot reach the
-    calculation engine, which may itself indicate a problem" is a better answer than a generic
-    error, and better than a thirty-second wait for the same conclusion.
+    An open breaker is itself useful information in an operations assistant: "I cannot reach
+    Prometheus, which may itself indicate a problem" is a better answer than a generic error, and
+    better than a thirty-second wait for the same conclusion.
     """
 
     def __init__(self, name: str, threshold: int = 5, cooldown_s: int = 60):

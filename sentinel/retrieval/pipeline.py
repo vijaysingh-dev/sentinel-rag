@@ -193,7 +193,7 @@ class RetrievalPipeline:
         """Hybrid, falling back to keyword-only when embeddings are unavailable.
 
         BM25-only is a genuinely useful degraded mode rather than a token gesture: exact-match
-        queries (error codes, index tickers, version numbers) are the ones it handles *best*, so a
+        queries (error codes, incident ids, version numbers) are the ones it handles *best*, so a
         meaningful fraction of traffic is unaffected.
         """
         started = time.perf_counter()

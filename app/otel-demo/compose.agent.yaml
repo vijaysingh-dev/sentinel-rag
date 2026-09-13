@@ -23,7 +23,6 @@ services:
       resources:
         limits:
           memory: 500M
-    restart: unless-stopped
     ports:
       - "${AGENT_PORT}"
     volumes:
@@ -71,7 +70,6 @@ services:
       resources:
         limits:
           memory: 500M
-    restart: unless-stopped
     ports:
       - "${MCP_PORT}"
     environment:
@@ -102,7 +100,6 @@ services:
       resources:
         limits:
           memory: 500M
-    restart: unless-stopped
     ports:
       - "${CHATBOT_PORT}"
     environment:

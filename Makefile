@@ -1,13 +1,19 @@
-.PHONY: help install doctor up down demo-up demo-down demo-status corpus ingest search eval bench test lint fmt clean
+.PHONY: help install doctor up down demo-up otel-demo-up demo-down demo-status corpus ingest search eval bench test lint fmt clean
 
 # The OpenTelemetry Demo — the real system the RCA agent investigates. Its compose lives under
 # app/otel-demo/; these targets drive it with the file set Sentinel needs (base services +
 # Prometheus/Jaeger + the incident-generator and health-monitor sidecars in compose.extras.yaml).
 OTEL_DEMO := app/otel-demo
+# --env-file .env.override is required explicitly: compose only auto-loads a bare `.env` from
+# the project directory, never `.env.override` — the file otel-demo's own README designates as
+# the "don't push to upstream, put your overrides here" seam and where compose.extras.yaml's
+# resource-sharing settings (POSTGRES_HOST, VALKEY_ADDR, the LLM_* reuse of Sentinel's key) live.
 DEMO_COMPOSE := docker compose \
 	-f $(OTEL_DEMO)/compose.yaml \
 	-f $(OTEL_DEMO)/compose.observability.yaml \
 	-f $(OTEL_DEMO)/compose.extras.yaml \
+	--env-file $(OTEL_DEMO)/.env \
+	--env-file $(OTEL_DEMO)/.env.override \
 	--project-name astroshop
 
 help:
@@ -22,29 +28,47 @@ install-all:  ## Install every provider
 doctor:  ## Show which providers are usable in this environment
 	uv run python scripts/00_doctor.py
 
-up:  ## Start postgres+pgvector, redis and langfuse
+up:  ## Start langfuse (postgres/redis are the standalone always-on `infra` containers, not managed here)
+	@# postgres and redis are no longer part of this compose project — they're always-on, plain
+	@# `docker run` containers on the `infra` Docker network (see docker-compose.yml's header
+	@# comment and CLAUDE.md/README for the exact run commands), started once, independent of any
+	@# project, the same way Portainer is. This target only checks they're reachable and starts
+	@# the one thing that actually is project-local: langfuse.
+	@docker network inspect infra >/dev/null 2>&1 || { \
+	    echo "no 'infra' network — postgres/redis haven't been started yet; see CLAUDE.md for the docker run commands"; exit 1; }
+	@docker exec postgres pg_isready -U sentinel >/dev/null 2>&1 || { \
+	    echo "postgres isn't running on the infra network — see CLAUDE.md for the docker run command"; exit 1; }
+	@docker exec redis redis-cli ping >/dev/null 2>&1 || { \
+	    echo "redis isn't running on the infra network — see CLAUDE.md for the docker run command"; exit 1; }
 	docker compose up -d
-	@echo "waiting for postgres..."
-	@until docker compose exec -T postgres pg_isready -U sentinel >/dev/null 2>&1; do sleep 1; done
 	@echo "ready"
 
-down:
-	docker compose down -v
+down:  ## Stop langfuse (postgres/redis are left running — they're the always-on global layer)
+	docker compose down
 
 demo-up:  ## Start the OpenTelemetry Demo (Astroshop) with Prometheus, Jaeger and the incident sidecars
+	@# Requires postgres+redis already running on the `infra` network (see `make up`'s check, or
+	@# just run it — it fails fast with the right pointer if they're not up). astronomy-db and
+	@# valkey-cart no longer start as their own containers (see app/otel-demo/compose.extras.yaml)
+	@# — product-catalog and cart join the shared infra containers instead. `otel-demo-up` below
+	@# also applies the one-time astronomy_db seed; call `demo-up` directly only once that seed is
+	@# already applied (it usually is — it only needs doing again after a fresh postgres volume).
 	@mkdir -p $${HOME}/.local/share/sentinel-rag/runtime/flagd \
-	          $${HOME}/.local/share/sentinel-rag/runtime/postgresql \
 	          $${HOME}/.local/share/sentinel-rag/app/incident-generator-data
 	@test -f $${HOME}/.local/share/sentinel-rag/runtime/flagd/demo.flagd.json \
 	    || cp $(OTEL_DEMO)/src/flagd/demo.flagd.json $${HOME}/.local/share/sentinel-rag/runtime/flagd/
-	@test -f $${HOME}/.local/share/sentinel-rag/runtime/postgresql/init.sql \
-	    || cp $(OTEL_DEMO)/src/postgresql/init.sql $${HOME}/.local/share/sentinel-rag/runtime/postgresql/ 2>/dev/null || true
-	$(DEMO_COMPOSE) up -d --no-build --pull missing
+	API_KEY=$$(grep '^GOOGLE_API_KEY=' .env | cut -d= -f2-) $(DEMO_COMPOSE) up -d --no-build --pull missing
 	@echo "waiting for Prometheus..."
 	@until curl -sf http://localhost:9090/-/ready >/dev/null 2>&1; do sleep 2; done
 	@echo "Astroshop up:  store http://localhost:8080  ·  Jaeger :16686  ·  Prometheus :9090  ·  flags :4000"
 	@echo "sidecars:      incident-generator :8092  ·  system-monitor :8091"
 	@echo 'point Sentinel at it: add FLAGD_CONFIG_PATH=$${HOME}/.local/share/sentinel-rag/runtime/flagd/demo.flagd.json to .env'
+
+otel-demo-up:  ## make up + make demo-up in the right order, with the astronomy_db seed applied against the shared postgres
+	$(MAKE) up
+	@docker exec postgres psql -U sentinel -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'astronomy_db'" | grep -q 1 \
+	    || docker exec -i postgres psql -U sentinel -d postgres < $(OTEL_DEMO)/src/postgresql/init.sql
+	$(MAKE) demo-up
 
 demo-down:  ## Stop the OpenTelemetry Demo
 	$(DEMO_COMPOSE) down
@@ -63,7 +87,7 @@ ingest:  ## Ingest ./knowledge into the configured vector store
 reindex:  ## Rebuild the index from scratch
 	uv run python -m sentinel.ingest.cli knowledge --recreate
 
-search:  ## Interactive retrieval check: make search Q="how do I restart ICE"
+search:  ## Interactive retrieval check: make search Q="how do I restart checkout"
 	uv run python scripts/llm/01_generate_grounded.py "$(Q)"
 
 eval:  ## Run the deterministic evaluation suite and the CI gate

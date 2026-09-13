@@ -19,7 +19,6 @@ services:
       resources:
         limits:
           memory: 1200M
-    restart: unless-stopped
     ports:
       - "${JAEGER_UI_PORT}"
       - "${JAEGER_GRPC_PORT}"
@@ -47,7 +46,6 @@ services:
       resources:
         limits:
           memory: 175M
-    restart: unless-stopped
     environment:
       - "GF_INSTALL_PLUGINS=grafana-opensearch-datasource"
     volumes:
@@ -81,7 +79,6 @@ services:
       resources:
         limits:
           memory: 200M
-    restart: unless-stopped
     ports:
       - "${PROMETHEUS_PORT}:${PROMETHEUS_PORT}"
     logging:
@@ -103,7 +100,6 @@ services:
       resources:
         limits:
           memory: 1G
-    restart: unless-stopped
     environment:
       - cluster.name=demo-cluster
       - node.name=demo-node
@@ -152,7 +148,6 @@ services:
       resources:
         limits:
           memory: 65M
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4321/"]
       start_period: 10s

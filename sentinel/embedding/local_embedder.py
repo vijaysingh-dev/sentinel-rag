@@ -66,7 +66,10 @@ class LocalEmbedder(BaseEmbedder):
         self.normalize = normalize
         self._st = SentenceTransformer(self.model, device=device)
 
-        self.dims = KNOWN_DIMS.get(self.model) or self._st.get_sentence_embedding_dimension()
+        dims = KNOWN_DIMS.get(self.model) or self._st.get_embedding_dimension()
+        if dims is None:
+            raise ValueError(f"Could not determine embedding dimension for model {self.model!r}")
+        self.dims = dims
         self.max_input_tokens = min(self._st.max_seq_length or 512, 512)
 
         super().__init__(use_cache=use_cache, batch_size=batch_size)

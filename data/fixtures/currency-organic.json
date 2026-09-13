@@ -1,0 +1,102 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:incident-currency",
+      "title": "Past incident: currency \u2014 no fault flag",
+      "doc_type": "incident",
+      "score": 0.71,
+      "text": "The 14:20 deploy added a synchronous call to an external exchange-rate refresh on every conversion request, instead of reading the rate cached at startup. No fault flag was active. Signature: currency duration_p95 up ~6x immediately after the 14:20 deploy; error rate flat; no fault flag active."
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:fixture0001",
+    "expr": "error ratio / duration for checkout and its dependencies",
+    "window_minutes": 30,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "checkout"
+          },
+          "first": 0.12,
+          "last": 0.9,
+          "min": 0.12,
+          "max": 0.9,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        },
+        {
+          "labels": {
+            "service_name": "currency"
+          },
+          "first": 0.12,
+          "last": 0.9,
+          "min": 0.12,
+          "max": 0.9,
+          "direction": "rising",
+          "from": "2026-06-01T14:00:00+00:00",
+          "to": "2026-06-01T14:30:00+00:00",
+          "points": 60
+        }
+      ],
+      "series_count": 2
+    }
+  },
+  "find_traces": {
+    "ref": "trace:fixture0001",
+    "service": "checkout",
+    "count": 1,
+    "traces": [
+      {
+        "trace_id": "abc123def456",
+        "found": true,
+        "duration_ms": 1600.0,
+        "span_count": 10,
+        "services": [
+          "checkout",
+          "currency"
+        ],
+        "slowest_span": {
+          "service": "currency",
+          "operation": "grpc.execute",
+          "duration_ms": 1350.0,
+          "share_of_trace": 0.84
+        },
+        "error_spans": [],
+        "note": "currency duration_p95 up ~6x immediately after the 14:20 deploy; error rate flat; no fault flag active."
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span."
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [],
+      "any_active": false
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:6h",
+    "count": 0,
+    "changes": []
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 1,
+    "events": [
+      {
+        "ts": "2026-06-01T14:20:00+00:00",
+        "service": "currency",
+        "kind": "deploy",
+        "note": "The 14:20 deploy added a synchronous call to an external exchange-rate refresh on every conversion request, instead of reading the rate cached at startup."
+      }
+    ]
+  },
+  "incident_history": {
+    "ref": "inclog:10",
+    "count": 0,
+    "incidents": []
+  }
+}

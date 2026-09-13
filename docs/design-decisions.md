@@ -69,7 +69,7 @@ Escalation costs one wasted local parse for documents that need the cloud, which
 
 **Decision.** All chunks live in one index. `allowed_roles` and `components` are array fields filtered inside the query.
 
-**Reasoning.** Filters are cheap — GIN-indexed array overlap in Postgres, `search.in()` in OData, `terms` in filter context in OpenSearch, all of which run inside the ANN traversal rather than after it. Queries routinely cross corpora: "how do I restart ICE and has this happened before" spans runbooks and incidents, and separate indexes would require fan-out and manual fusion.
+**Reasoning.** Filters are cheap — GIN-indexed array overlap in Postgres, `search.in()` in OData, `terms` in filter context in OpenSearch, all of which run inside the ANN traversal rather than after it. Queries routinely cross corpora: "how do I restart checkout and has this happened before" spans runbooks and incidents, and separate indexes would require fan-out and manual fusion.
 
 Splitting also multiplies operational surface: N indexes to build, N to re-index on an embedding change, N to keep schema-consistent.
 
@@ -97,7 +97,7 @@ There is a performance argument too — filtering inside the ANN traversal avoid
 
 **Decision.** `DOC_TYPE_STRATEGY` routes runbooks to `runbook`, glossaries to `glossary`, everything else to `structural`.
 
-**Reasoning.** A runbook and a glossary want opposite things. A glossary entry is atomic: merging "divisor" and "rebalance" into one 500-token chunk makes both harder to find, because the vector represents an average of two unrelated concepts. A runbook must never be split at retrieval time, because a retrieved half-runbook is worse than none — someone under incident pressure will execute the half.
+**Reasoning.** A runbook and a glossary want opposite things. A glossary entry is atomic: merging "burn rate" and "error budget" into one 500-token chunk makes both harder to find, because the vector represents an average of two unrelated concepts. A runbook must never be split at retrieval time, because a retrieved half-runbook is worse than none — someone under incident pressure will execute the half.
 
 No single strategy serves both. A global setting means picking which document type to serve badly.
 
@@ -113,7 +113,7 @@ No single strategy serves both. A global setting means picking which document ty
 
 **Reasoning.** This is the highest-return change in the chunking layer and it costs a handful of tokens.
 
-*"Set this to false to skip validation"* is unretrievable — no realistic query lands near it in embedding space. *"ICE Configuration > Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of queries.
+*"Set this to false to skip validation"* is unretrievable — no realistic query lands near it in embedding space. *"Checkout Configuration > Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of queries.
 
 In practice the prefix buys more recall than upgrading the embedding model, which is worth knowing before spending money on the latter.
 
@@ -254,13 +254,15 @@ The same reasoning applies to the evidence-id filter in the same function: cited
 
 ---
 
-## ADR-018 — SQL safety in four layers, with the database as the guarantee
+## ADR-018 — SQL safety in four layers, with the database as the guarantee — **superseded by ADR-027**
 
-**Decision.** sqlglot AST parsing, single-statement check, forced LIMIT, and a database-level read-only role.
+> **Superseded.** ADR-027 replaced the SQL warehouse tool this ADR defends with a PromQL tool against Prometheus (`sentinel/rca/tools/metrics.py`, `query_prometheus`) — there is no `run_readonly_sql` tool, no sqlglot dependency and no `warehouse.py` in the codebase today. The reasoning trail is kept because the four-layer shape carried over intact: metric-name allowlist in place of AST parsing, a forbidden-function list in place of the single-statement check, a forced bounded time range in place of the forced LIMIT, and Prometheus' read-only query API in place of the database role as the actual guarantee — see ADR-027 and the docstring in `sentinel/rca/tools/metrics.py` for the current version of this argument. `config/init-readonly-role.sql` still exists and still backs pgvector, but no longer backs a SQL tool; that file and this ADR's "Cost" section below are the one piece of this migration nobody has cleaned up yet.
+
+**Decision (historical — see above).** sqlglot AST parsing, single-statement check, forced LIMIT, and a database-level read-only role.
 
 **Reasoning.** Layers one through three are application-level and defeatable in principle — a parser has bugs, a keyword list has gaps. Layer four is not: a role without INSERT cannot insert, whatever reaches it.
 
-Parsing rather than regex matters specifically. A regex looking for "DELETE" is defeated by comments, casing and string literals; `tests/test_trajectory.py` includes `"SELECT 1 /* harmless */; DELETE FROM index_values"` as a regression case.
+Parsing rather than regex matters specifically. A regex looking for "DELETE" is defeated by comments, casing and string literals; `tests/test_trajectory.py` includes `"SELECT 1 /* harmless */; DELETE FROM orders"` as a regression case.
 
 **Rejected.** Prompt instructions alone. Not a security control. Allow-listing specific queries — too rigid for exploratory analysis, which is the entire value of the tool.
 
@@ -316,7 +318,7 @@ Decomposition also neutralises verbosity bias: length stops being a proxy for qu
 
 **Reasoning.** A golden set of only answerable questions cannot measure hallucination. A system that always answers will score well on it and fail users, and the evaluation will report success throughout.
 
-ACL cases carry a second, subtler requirement: the correct behaviour is not merely "no answer" but "no acknowledgement that the document exists". *"You don't have access to the EU_TECH_50 incident post-mortem"* has already leaked that there was an incident on that index — which in a regulated environment can itself be material.
+ACL cases carry a second, subtler requirement: the correct behaviour is not merely "no answer" but "no acknowledgement that the document exists". *"You don't have access to the payment-service incident post-mortem"* has already leaked that there was an incident on that service — which in a regulated environment can itself be material.
 
 **Rejected.** Measuring only positive cases. Common, and it produces a metric that improves as the system becomes more willing to guess.
 
@@ -338,9 +340,11 @@ A system can score 0.95 on a synthetic set and fail on real traffic. The label e
 
 ---
 
-## ADR-024 — Generated fact sheets rather than RAG over a metadata database
+## ADR-024 — Generated fact sheets rather than RAG over a metadata database — **superseded, archived**
 
-**Decision.** `ingest/factsheet.py` renders a markdown document per index from Kafka events and ingests it normally.
+> **Superseded.** This ADR and `ingest/factsheet.py` were built entirely around the retired financial-index-platform theme (tickers, index rebalance schedules, Kafka `index.launched`/`amended`/`retired` events) — see the otel-demo re-theme note in `docs/design-decisions.md`'s changelog. Nothing in `sentinel/` calls this module; it moved to `.archive/ingest/factsheet.py` rather than being word-swapped, because the underlying idea needs a real redesign for this system (what structured event stream would generate an otel-demo-equivalent document — a per-service fact sheet from CI/CD deploy events, perhaps?), not a mechanical rename. The reasoning below is kept because the *shape* of the argument — generate prose from structured metadata instead of RAG-ing over rows of a database — is still correct and may apply again once a concrete otel-demo trigger is chosen.
+
+**Decision (historical — see above).** `ingest/factsheet.py` renders a markdown document per index from Kafka events and ingests it normally.
 
 **Reasoning.** New indices launch continuously and nobody writes a wiki page for each. The two obvious options both fail: leaving them undocumented leaves a permanent gap, and chunking rows of a metadata database produces chunks of orphaned field values that retrieve on numbers and mean nothing.
 
@@ -386,7 +390,7 @@ Error signatures from resolved incidents are the opposite: small, stable, and ex
 
 **Reasoning.** The financial theme was fiction with every dependency stubbed, so "what breaks in production" was an assertion rather than something demonstrable. The otel-demo is a real system with real OpenTelemetry traces and metrics, a real dependency graph (its own `compose.yaml`), and injectable faults (`flagd`) whose ground truth is exact — `app/incident-generator` records the flag it flipped and when. Re-theming turns every stubbed client into one that reads a live signal, makes the knowledge corpus documentation of a system that actually exists, and makes agent evaluation checkable against `scripts/corpus/_incident_truth.jsonl` instead of a hand-written answer key.
 
-The CLA​UDE.md invariants are unchanged — `require_scope` fail-closed, filters-in-query, `publish_node` needs `approved_by`, `DEGRADED_CONFIDENCE_CAP` enforced in code, supervisor holds no tools. They were never financial; they are structural, and they survive the re-theme verbatim.
+The CLAUDE.md invariants are structural, not financial, so most survive the re-theme verbatim — `require_scope` fail-closed, filters-in-query, `publish_node` needs `approved_by`, `DEGRADED_CONFIDENCE_CAP` enforced in code, supervisor holds no tools. The one exception is the SQL-safety bullet, which named the now-retired warehouse tool directly; it was updated to describe this ADR's PromQL guard rails instead once that staleness was noticed.
 
 The warehouse tool becomes a PromQL tool. The four-layer defence is preserved and re-expressed: parse the expression rather than regex it (PromQL has no parser in the stdlib, so the guard is a metric-name allowlist plus a mandatory bounded range and a forbidden-function list), a single expression only, a forced time bound, and a read-only Prometheus HTTP endpoint — the layer that actually guarantees it, exactly as the read-only database role did.
 
@@ -395,3 +399,43 @@ The warehouse tool becomes a PromQL tool. The four-layer defence is preserved an
 **Rejected.** Adopting a third-party RAG framework (LlamaIndex, Haystack, RAGFlow) as the base and building the agent on top. Throws away the parts that are the point here — the security model, provider symmetry, the eval gate, the agent tool-isolation constraints — to inherit someone else's abstractions.
 
 **Cost.** A one-time rewrite of five files plus `tests/test_trajectory.py` (which hard-codes `index_values` in its SQL fixtures and the `run_readonly_sql` tool name). The otel-demo is vendored under `app/otel-demo/` (~large, Apache-2.0), kept as read-only input. Some knowledge of the financial framing is now only in git history and `.archive/`.
+
+---
+
+## ADR-028 — Plain OpenAI reuses the `azure` provider slot instead of becoming a fourth provider — **superseded by ADR-029, one day later**
+
+> **Superseded.** This ADR's own "Rejected" alternative — a real fourth provider — is what ADR-029 below actually does, once the scope widened from "one OpenAI key" to "OpenAI, Anthropic and Google, and no reason to keep Azure/AWS as embed/rerank/llm paths at all." The reasoning trail is kept rather than deleted: it's the honest record of why the azure-slot-reuse hack seemed reasonable for about a day, and exactly what changed to make it not worth keeping. Nothing described below matches current code — see ADR-029 and `docs/adapters.md`.
+
+**Decision.** `EMBED_PROVIDER=azure` and `LLM_PROVIDER=azure` now cover two auth paths, not one. `AzureOpenAIEmbedder` and `AzureLLM` check `azure_openai_endpoint` first; if it's empty and `openai_api_key` is set, they construct a plain `openai.OpenAI` / `langchain_openai.ChatOpenAI` client (a model id in `model=`) instead of the `AzureOpenAI` / `AzureChatOpenAI` client (a deployment name, managed identity or key). `Settings._uses_plain_openai` is the one place that decides which; `embedding_model`, `embedding_dims`, `index_version`, `make doctor`, and the config validator's prerequisite check all read it so none of them describe the Azure deployment that isn't actually being called. `Provider` stays `Literal["local", "azure", "aws"]` — no fourth value.
+
+**Reasoning.** This environment has an OpenAI API key and explicitly no Azure or AWS account (cost). Every stage already needs *some* concrete cloud LLM/embedding path to exercise the embedding-stage-onward walkthroughs, benchmarks, and eval scripts live rather than against stubs. The two real options were a fourth `Provider` value with its own adapter pair, or branching inside the existing Azure adapters on which credential is present. Azure OpenAI and plain OpenAI share the same Python SDK, the same request/response shape, the same Matryoshka-truncation behavior on the `text-embedding-3-*` family, and the same LangChain chat wrapper family (`AzureChatOpenAI`/`ChatOpenAI`) — the entire difference is which client class gets constructed and whether the identifier sent is a deployment name or a model id. That is a constructor-level branch, not a reason to duplicate `_embed_batch`, `_apply_prefix`, `_prepare`, retry wiring, and every other line the two would otherwise share verbatim.
+
+**Rejected.** A fourth `openai` provider (`Provider = Literal["local", "azure", "aws", "openai"]`) with its own `OpenAIEmbedder`/`OpenAILLM` classes and registry rows. Keeps "azure" meaning only Azure OpenAI, which is cleaner per ADR-001's per-stage-provider-symmetry spirit — and is the better answer if this ever needs to run somewhere both an Azure resource and a plain OpenAI key exist side by side, which this environment does not. Revisit if that becomes true: at that point the branch inside `azure_embedder.py`/`azure_llm.py` should split out, because "azure" silently meaning "maybe not Azure" stops being a defensible simplification once both are live simultaneously.
+
+**Cost.** "azure" in `.env`, `docs/adapters.md`, and `make doctor` output no longer means "an Azure resource is configured" — it means "the Azure-OpenAI-shaped adapter is active," which may or may not involve Azure. `make doctor` prints `[openai_api_key, not an Azure resource]` next to the stage to make this legible at a glance rather than silent. Reranking has no equivalent path — OpenAI has no rerank endpoint — so `RERANK_PROVIDER=azure` still means Azure AI Search's semantic ranker and genuinely needs that resource; this repo's actual reranking path with only an OpenAI key is `RERANK_PROVIDER=local` (the default).
+
+---
+
+## ADR-029 — Embedding, vector storage and reranking stop being multi-cloud; generation becomes its own vendor axis
+
+**Decision.** `Provider` is gone. Each stage now has its own `Literal` in `core/config.py`:
+
+```python
+ParseProvider  = Literal["local", "azure", "aws"]                    # unchanged
+EmbedProvider  = Literal["local", "openai"]
+VectorProvider = Literal["local"]
+RerankProvider = Literal["local", "cohere"]
+LLMProvider    = Literal["local", "openai", "anthropic", "google"]
+```
+
+Parsing is untouched. Embedding, vector storage and reranking drop Azure/AWS as maintained paths — `AzureOpenAIEmbedder`, `BedrockEmbedder`, `AzureSearchStore`, `OpenSearchStore`, `AzureSemanticReranker`, `BedrockReranker` all move to `.archive/providers/`, unregistered, with a README on how to revive one. Embedding keeps a single paid escape hatch (`OpenAIEmbedder`); reranking keeps a single paid escape hatch (`CohereReranker`); vector storage keeps none — pgvector is the only provider. Generation is rebuilt from scratch as its own axis: `local_llm.py` (Ollama/vLLM) is unchanged, and `azure_llm.py`/`aws_llm.py` are replaced by `openai_llm.py`, `anthropic_llm.py`, `google_llm.py` — three peers, not a cloud-account choice, each selected independently of `parse_provider`. Config validation (`_check_provider_prerequisites`) fails fast per-provider: selecting `embed_provider=openai` without `openai_api_key`, `rerank_provider=cohere` without `cohere_api_key`, or `llm_provider={openai,anthropic,google}` without the matching key is rejected at startup, not discovered mid-run.
+
+**Reasoning.** Two independent judgments, from direct experience running this pipeline: first, for embedding/vectorstore/reranking, a self-hosted pgvector instance and a local embedding/reranking model are not meaningfully worse than their managed cloud equivalents at this corpus's size, and they cost nothing per query — so paying for Azure AI Search, OpenSearch, Bedrock embedding or Bedrock rerank bought too little to justify maintaining three adapters per stage instead of one. (Learning to operate the managed versions by hand — the actual cloud consoles, IAM, provisioning — was explicitly deferred to hands-on study rather than something this codebase's abstraction layer should paper over.) Second, for generation, OpenAI/Anthropic/Google were never really "the Azure account" or "the AWS account" the way Bedrock and Azure OpenAI were — model quality and price are the axis that matters when picking an LLM vendor, and forcing that choice through the same `Literal` as "which cloud does parsing use" actively hid the fact that they're unrelated decisions. Splitting `Provider` into five stage-specific types makes both of these visible in the type system instead of just in prose: you cannot even attempt `EMBED_PROVIDER=azure` any more, because Azure was never a real answer to "how should this stage embed text" — it was a proxy for "which cloud account do I already have," and that reasoning stopped applying once the account was AWS/Azure for parsing only.
+
+This directly reverses part of ADR-001 ("provider selection is per stage, not global") in spirit but not in mechanism: ADR-001's point — that the realistic shape is mixed, not one cloud for everything — still holds and is *why* parsing can differ from the rest. What changes is that "per stage" no longer implies "same three options on every stage." A stage's provider set is now scoped to what that stage has an actual reason to support.
+
+**Rejected.** Keeping Azure/AWS as embed/vectorstore/rerank options but simply defaulting to `local`. Doesn't remove the maintenance burden ADR-001/ADR-002 accepted when multi-cloud was the point — dead code that still has to compile, lint, and appear in `docs/adapters.md`'s matrix as if it were a live choice is worse than code that's honestly archived with a stated reason and a revival path.
+
+**Rejected.** Making `llm_provider` a sixth value alongside `parse_provider`'s `local/azure/aws` (e.g. `llm_provider: Literal["local", "azure", "aws", "openai", "anthropic", "google"]`) instead of its own independent set. Would let someone write `LLM_PROVIDER=azure` again with no Azure OpenAI adapter behind it — exactly the ADR-028 confusion this ADR exists to remove, reintroduced one field over.
+
+**Cost.** A breaking config change: any `.env` with `EMBED_PROVIDER=azure/aws`, `VECTORSTORE_PROVIDER=azure/aws`, `RERANK_PROVIDER=azure/aws`, or `LLM_PROVIDER=azure/aws` now fails Pydantic validation at startup with a clear "not a valid EmbedProvider" (etc.) error rather than silently doing something else — the right failure mode for a breaking change, but a failure mode nonetheless for anyone who had the old values set. `pyproject.toml`'s `azure`/`aws` extras shrink to parsing-only SDKs (`azure-search-documents`, `opensearch-py`, `requests-aws4auth`, `langchain-aws` all removed); a new `inference` extra carries `langchain-anthropic`, `langchain-google-genai`, `cohere`. If a maintained cloud path for embed/vectorstore/rerank is ever needed again — a corpus that outgrows what local infra can serve, say — that is a real ADR-level decision to make explicitly, not a default to quietly restore.

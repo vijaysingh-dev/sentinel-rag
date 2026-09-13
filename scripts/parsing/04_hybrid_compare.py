@@ -9,8 +9,8 @@ alongside quality, and then shows which route the configured hybrid strategy tak
 The interesting column is cost-per-quality-point, not quality: a parser that scores 0.02 higher
 for eight times the price is rarely the right answer on a large corpus.
 
-Per-provider traces (``outputs/<stem>/<provider>.trace.log``) and a comparison summary
-(``outputs/<stem>/compare.trace.log``) are written so the decision is auditable after the fact.
+Per-provider traces (``outputs/parsing/<stem>/<provider>.trace.log``) are written so the decision
+is auditable after the fact.
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ async def run(path: str, strategy: str) -> int:
     if "prose_from" in hybrid_doc.meta:
         print(f"prose     {hybrid_doc.meta['prose_from']}")
         print(f"tables    {hybrid_doc.meta['tables_from']}")
-    print(f"\ntraces    outputs/{Path(path).stem}/*.trace.log")
+    print(f"\ntraces    outputs/{Path(path).stem}/parsing/*.trace.log")
 
     return 0
 

@@ -1,6 +1,6 @@
 """Structured output and tool calling, compared across providers.
 
-    python scripts/llm/02_structured_and_tools.py --provider azure
+    python scripts/llm/02_structured_and_tools.py --provider anthropic
     python scripts/llm/02_structured_and_tools.py --provider local
 
 Worth running on a local model before you assume provider parity. Small local models will produce
@@ -31,7 +31,7 @@ class Triage(BaseModel):
     # throughout the evaluation and verification code, for the same reason.
     reasoning: str = Field(max_length=300)
     severity: Literal["p1", "p2", "p3", "noise"]
-    likely_area: Literal["calculation", "data_feed", "delivery", "reference_data", "unknown"]
+    likely_area: Literal["checkout", "payment", "kafka", "infra", "unknown"]
     needs_human: bool
     confidence: float = Field(ge=0, le=1)
 
@@ -48,12 +48,13 @@ def search_knowledge(query: str, doc_type: str | None = None) -> str:
 
 
 @tool
-def run_readonly_sql(sql: str, purpose: str) -> str:
-    """Run a single read-only SELECT against the index metrics warehouse.
+def query_prometheus(expr: str, purpose: str, lookback_minutes: int = 30) -> str:
+    """Run a single PromQL query against the metrics backend.
 
     Args:
-        sql: A single SELECT statement.
+        expr: A PromQL expression.
         purpose: What this query establishes.
+        lookback_minutes: How far back the query window extends.
     """
     return "stub"
 
@@ -69,13 +70,14 @@ def recent_deployments(service: str | None = None, hours: int = 24) -> str:
     return "stub"
 
 
-ALERT = """Index EU_TECH_50 published 1842.11 at 09:14:30 against an expected 1861.40, a 1.04%
-deviation flagged by the zscore_5m detector. Two peer indices sharing constituents are unaffected."""
+ALERT = """checkout error ratio crossed its alert threshold at 09:14:30, rising to 4.2% against a
+0.5% baseline. Trace inspection shows the error status originating in the payment span, not in
+checkout itself."""
 
 TOOL_CASES = [
-    ("Has this happened to EU_TECH_50 before?", "search_knowledge"),
-    ("Compare today's divisor against the last five sessions.", "run_readonly_sql"),
-    ("Did anything ship to the calculation engine this morning?", "recent_deployments"),
+    ("Has this happened to payment before?", "search_knowledge"),
+    ("Compare today's checkout error rate against the last five days.", "query_prometheus"),
+    ("Did anything ship to payment this morning?", "recent_deployments"),
 ]
 
 
@@ -100,7 +102,7 @@ async def run(provider: str | None) -> int:
     print("\n" + "=" * 66)
     print("tool selection")
     print("=" * 66)
-    bound = llm.chat.bind_tools([search_knowledge, run_readonly_sql, recent_deployments])
+    bound = llm.chat.bind_tools([search_knowledge, query_prometheus, recent_deployments])
 
     correct = 0
     for question, expected in TOOL_CASES:
@@ -118,7 +120,7 @@ async def run(provider: str | None) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--provider", default=None, choices=["local", "azure", "aws"])
+    parser.add_argument("--provider", default=None, choices=["local", "openai", "anthropic", "google"])
     args = parser.parse_args()
 
     configure_logging()

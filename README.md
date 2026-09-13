@@ -1,8 +1,8 @@
 # Sentinel RAG
 
-A multi-cloud RAG pipeline feeding a LangGraph multi-agent root-cause analysis system for a financial index calculation platform.
+A RAG pipeline feeding a LangGraph multi-agent root-cause analysis system for the OpenTelemetry Demo ("Astroshop"), a real ~20-service e-commerce deployment instrumented with Prometheus, Jaeger and flagd.
 
-Every stage — parsing, embedding, vector storage, reranking, generation — has three interchangeable implementations behind one interface: **local**, **Azure** and **AWS**. Provider selection is per stage, so a realistic deployment can parse with Azure Document Intelligence, embed with Bedrock Titan, and rerank locally, without any of it leaking into the agent code.
+**Parsing** is genuinely multi-cloud — **local**, **Azure** Document Intelligence and **AWS** Textract behind one interface, because each does something a local library cannot (layout models, OCR on scans). **Embedding, vector storage and reranking are local-first infrastructure** instead: they default to local (sentence-transformers, pgvector, a local cross-encoder) with one paid escape hatch each (`openai`, none, `cohere`) rather than a maintained cloud matrix. **Generation** picks a model vendor directly — `local` / `openai` / `anthropic` / `google` — independent of every other stage. None of this leaks into the agent code either way; see `docs/adapters.md` and ADR-029 in `docs/design-decisions.md` for the reasoning.
 
 The dependencies it talks to (warehouse, deployment service, ITSM) are stubbed. The control flow, security model, failure handling, evaluation and observability are the real shapes.
 
@@ -23,7 +23,7 @@ Each of those has a runnable answer here.
 ```bash
 uv sync --extra local --extra observability --extra dev
 cp .env.example .env
-make up                    # postgres+pgvector, redis, langfuse
+make up                    # langfuse (postgres/redis are the always-on infra layer — see CLAUDE.md)
 make doctor                # which providers are usable here
 make ingest                # index ./knowledge
 uv run python scripts/vectorstore/01_index_and_search.py
@@ -32,24 +32,26 @@ make test
 
 The entire pipeline runs locally: sentence-transformers for embeddings, pgvector for storage and hybrid search, a local cross-encoder for reranking, Ollama or vLLM for generation.
 
-## Try the same thing on each cloud
+## Try the same thing on each provider
 
 ```bash
-# parsing
-python scripts/parsing/01_parse_local.py  data/raw/methodology.pdf
-python scripts/parsing/02_parse_azure.py  data/raw/methodology.pdf
-python scripts/parsing/03_parse_aws.py    data/raw/methodology.pdf
-python scripts/parsing/04_hybrid_compare.py data/raw/methodology.pdf   # cost-per-quality table
+# parsing — the one genuinely multi-cloud stage
+python scripts/parsing/01_parse_local.py  knowledge/architecture/dependency-model.pdf
+python scripts/parsing/02_parse_azure.py  knowledge/architecture/dependency-model.pdf
+python scripts/parsing/03_parse_aws.py    knowledge/architecture/dependency-model.pdf
+python scripts/parsing/04_hybrid_compare.py knowledge/architecture/dependency-model.pdf   # cost-per-quality table
 
-# embedding
+# embedding — local by default, openai is the escape hatch
 python scripts/embedding/01_embed_local.py     # shows the query/document asymmetry trap
-python scripts/embedding/02_embed_azure.py     # Matryoshka dimension truncation
-python scripts/embedding/03_embed_aws.py       # Titan vs Cohere API shapes
+python scripts/embedding/02_embed_openai.py    # Matryoshka dimension truncation
 
-# storage and retrieval
-python scripts/vectorstore/01_index_and_search.py --provider azure
+# storage and retrieval — pgvector is the only vector store
+python scripts/vectorstore/01_index_and_search.py
 python scripts/vectorstore/02_acl_filtering.py           # permissions, demonstrated
-python scripts/reranking/01_rerank_compare.py            # what a cross-encoder actually fixes
+python scripts/reranking/01_rerank_compare.py --provider local   # or --provider cohere
+
+# generation — pick a vendor directly, independent of the parsing cloud account
+python scripts/llm/01_generate_grounded.py --provider anthropic "how do I restart the checkout service"
 ```
 
 ## Where to look first
@@ -92,15 +94,15 @@ intake → supervisor ⇄ {knowledge, data, change}
 make api
 
 curl -XPOST localhost:8080/v1/investigations -H 'content-type: application/json' -d '{
-  "anomaly_id": "ANOM-11204",
+  "anomaly_id": "INC-2607",
   "tenant_id": "acme",
   "roles": ["admin"],
-  "anomaly": {"index_id": "EU_TECH_50", "detected_at": "2026-03-04T09:14:30Z",
-              "metric": "index_value", "observed": 1842.11, "expected": 1861.40,
-              "detector": "zscore_5m"}}'
+  "anomaly": {"summary": "checkout error ratio / latency crossed its alert threshold",
+              "alerting_service": "checkout", "started_at": "2026-07-26T14:31:00Z",
+              "signal": "error_ratio"}}'
 
-curl -N localhost:8080/v1/investigations/ANOM-11204/stream
-curl -XPOST localhost:8080/v1/investigations/ANOM-11204/decision \
+curl -N localhost:8080/v1/investigations/INC-2607/stream
+curl -XPOST localhost:8080/v1/investigations/INC-2607/decision \
      -H 'content-type: application/json' -d '{"action":"approve","reviewer":"vijay"}'
 ```
 
@@ -126,10 +128,11 @@ Each writes a CSV to `benchmarks/results/` and a markdown leaderboard to `docs/`
 
 ## Requirements
 
-Python 3.12. Docker for the local stack. Cloud extras are optional:
+Python 3.12. Docker for the local stack. Cloud/vendor extras are optional:
 
 ```bash
-uv sync --extra azure   # Document Intelligence, AI Search, Azure OpenAI
-uv sync --extra aws     # Textract, OpenSearch, Bedrock
+uv sync --extra azure       # parsing only: Azure Document Intelligence
+uv sync --extra aws         # parsing only: AWS Textract
+uv sync --extra inference   # embed/rerank/llm escape hatches: OpenAI, Anthropic, Google, Cohere
 uv sync --extra all
 ```

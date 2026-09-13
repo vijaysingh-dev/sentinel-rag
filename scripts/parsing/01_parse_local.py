@@ -4,7 +4,7 @@
 
 Run this first on any new corpus. The terminal summary tells you whether you need a cloud
 parser at all — the difference between paying per page for everything and paying for the
-10% that need it. The trace log it writes to ``outputs/<stem>/local.trace.log`` tells you
+10% that need it. The trace log it writes to ``outputs/parsing/<stem>/local.trace.log`` tells you
 *why* the score came out where it did: format detection, the text-layer probe, which
 handler ran, what each page yielded, how the blocks were built, and every component of the
 quality score with its warnings.

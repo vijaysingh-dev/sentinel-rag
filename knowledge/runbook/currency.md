@@ -47,3 +47,7 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 - Confirm `rpc_server_duration_milliseconds` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.
+
+## Past incidents
+
+- **INC-2767** (2026-09-03) — currency elevated latency after a deploy. Cause: no fault flag — see post-mortem.

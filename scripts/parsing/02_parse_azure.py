@@ -16,7 +16,7 @@ The call this demonstrates:
 is ~7x cheaper but returns no headings, no tables and no section hierarchy — nothing structural
 for the chunker. Compare them with ``--model``.
 
-The trace (``outputs/<stem>/azure.trace.log``) records how many pages the service actually
+The trace (``outputs/parsing/<stem>/azure.trace.log``) records how many pages the service actually
 returned — worth checking, because a free-tier (F0) resource silently caps analysis at two
 pages per document, which shows up downstream as "half my document is missing from the index".
 """

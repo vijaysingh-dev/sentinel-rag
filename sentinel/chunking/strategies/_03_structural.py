@@ -19,8 +19,9 @@ class StructuralChunker(BaseChunker):
     This is the recommended default, and the heading prefix is the reason.
 
     A chunk reading *"Set this to false to skip validation"* is unretrievable — no realistic query
-    lands near it in embedding space. The same chunk embedded as *"ICE Configuration > Validation >
-    strict_mode — Set this to false to skip validation"* is findable by dozens of queries. The
+    lands near it in embedding space. The same chunk embedded as *"Checkout Configuration >
+    Validation > strict_mode — Set this to false to skip validation"* is findable by dozens of
+    queries. The
     prefix costs a handful of tokens and typically buys more recall than upgrading the embedding
     model.
 

@@ -1,8 +1,7 @@
-"""Embed with Azure OpenAI, and measure what Matryoshka truncation costs you.
+"""Embed with plain OpenAI, and measure what Matryoshka truncation costs you.
 
-    export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
-    az login
-    python scripts/embedding/02_embed_azure.py --dims 3072 1024 512 256
+    export OPENAI_API_KEY=sk-...
+    python scripts/embedding/02_embed_openai.py --dims 3072 1024 512 256
 
 The `text-embedding-3-*` models are trained so the leading dimensions are usable alone, so passing
 `dimensions=512` returns a shorter vector that keeps most of the quality. Index size and query
@@ -11,7 +10,7 @@ is — so this trade is worth measuring on your own data rather than assuming.
 
 The exact call:
 
-    client.embeddings.create(model=<deployment>, input=[...], dimensions=512)
+    client.embeddings.create(model="text-embedding-3-large", input=[...], dimensions=512)
 """
 
 from __future__ import annotations
@@ -23,15 +22,17 @@ import time
 import numpy as np
 
 from sentinel.core.observability import configure_logging
-from sentinel.embedding.azure_embedder import AzureOpenAIEmbedder
+from sentinel.embedding.openai_embedder import OpenAIEmbedder
 
-QUERY = "why did the divisor change after the special dividend"
+QUERY = "why did payment start failing after the flag change"
 PASSAGES = [
-    "Special dividends require a divisor adjustment on the ex-date to keep the index level "
-    "continuous across the cash distribution.",
-    "Ordinary dividends are not adjusted for in a price-return index and flow through as a "
-    "natural decline in the index level.",
-    "Exchange delivery uses a FIX session with sequence-number gap-fill on reconnect.",
+    "The paymentFailure feature flag was set to its fault variant, so charge() throws for a "
+    "percentage of requests; payment itself is healthy and the failure is injected at the flag "
+    "layer.",
+    "flagd re-evaluates flags on its polling interval, so a flip is not instantaneous — expect a "
+    "short delay between the change and the first affected request.",
+    "Kafka consumer-group offsets are tracked per partition, with gap-fill on reconnect after a "
+    "rebalance.",
 ]
 
 
@@ -43,7 +44,7 @@ def cosine(a, b) -> float:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dims", nargs="*", type=int, default=[3072, 1024, 512, 256])
-    parser.add_argument("--deployment", default=None)
+    parser.add_argument("--model", default="text-embedding-3-large")
     args = parser.parse_args()
 
     configure_logging()
@@ -54,7 +55,7 @@ def main() -> int:
     print("-" * 64)
 
     for dims in args.dims:
-        embedder = AzureOpenAIEmbedder(deployment=args.deployment, dims=dims, use_cache=False)
+        embedder = OpenAIEmbedder(model=args.model, dims=dims, use_cache=False)
 
         started = time.perf_counter()
         query_vec = embedder.embed_query(QUERY)

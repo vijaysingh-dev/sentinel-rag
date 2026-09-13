@@ -54,7 +54,7 @@ The retriever wants small single-topic units. The generator wants surrounding co
 
 **"What's the highest-return change you made to chunking?"**
 
-Prefixing the heading path onto `embed_text`. *"Set this to false to skip validation"* is unretrievable — no realistic query lands near it. *"ICE Configuration > Validation > strict_mode — Set this to false..."* is findable by dozens. It costs a handful of tokens and in practice bought more recall than upgrading the embedding model would have.
+Prefixing the heading path onto `embed_text`. *"Set this to false to skip validation"* is unretrievable — no realistic query lands near it. *"Checkout Configuration > Validation > strict_mode — Set this to false..."* is findable by dozens. It costs a handful of tokens and in practice bought more recall than upgrading the embedding model would have.
 
 **"Do you use semantic chunking?"**
 
@@ -94,7 +94,7 @@ Cohere on Bedrock does batch, up to 96, and requires `input_type`.
 
 **"Why hybrid search?"**
 
-Because the two arms fail on different queries and the failures are complementary. Dense search fails on exact identifiers — `INCIDENT-4471` is a token the embedding model has no useful representation for. Lexical search fails on paraphrase — "market data arrives late" and "feed staleness" share no words.
+Because the two arms fail on different queries and the failures are complementary. Dense search fails on exact identifiers — `INC-2607` is a token the embedding model has no useful representation for. Lexical search fails on paraphrase — "checkout is slow" and "elevated latency" share no words.
 
 `scripts/vectorstore/01_index_and_search.py` runs the same three queries through dense, lexical and hybrid so the pattern is visible in one screen.
 
@@ -112,7 +112,7 @@ I report recall@5 and recall@50 together, because the gap localises the failure.
 
 **"What happens when the embedding service goes down?"**
 
-It degrades to lexical-only rather than failing. That is a genuinely useful mode, not a token gesture: exact-match queries — error codes, tickers, version numbers — are the ones lexical handles *best*, so a meaningful fraction of traffic is unaffected.
+It degrades to lexical-only rather than failing. That is a genuinely useful mode, not a token gesture: exact-match queries — error codes, service names, version numbers — are the ones lexical handles *best*, so a meaningful fraction of traffic is unaffected.
 
 Every degradation increments `DEGRADED_MODE`, which is what catches a silent multi-day drift into a fallback path that nobody noticed because nothing errored. The mode is also passed to the model, so the eventual answer says its confidence is lower than usual.
 
@@ -126,11 +126,11 @@ There is also a second check on the returned results that should never fire, wir
 
 **"Isn't a refusal itself a leak?"**
 
-Yes, and that is the subtler half. "You don't have access to the EU_TECH_50 incident post-mortem" has already leaked that there was an incident on that index. `ToolResult.denied()` returns an instruction telling the model not to describe what was restricted or confirm it exists, and `tests/test_acl.py` parametrises over the forbidden terms to assert the instruction text does not name them.
+Yes, and that is the subtler half. "You don't have access to the payment-service incident post-mortem" has already leaked that there was an incident on that service. `ToolResult.denied()` returns an instruction telling the model not to describe what was restricted or confirm it exists, and `tests/test_acl.py` parametrises over the forbidden terms to assert the instruction text does not name them.
 
 **"Do you cache?"**
 
-Three layers, and the rule is: cache knowledge, never telemetry. One conversation mixes both — "what does a stale feed mean" is stable for months, "is the SGX feed healthy" for seconds. Caching the second turns the assistant into an incident: someone asks whether a feed recovered, gets a ten-minute-old "healthy", and stops investigating.
+Three layers, and the rule is: cache knowledge, never telemetry. One conversation mixes both — "what does a circuit breaker do" is stable for months, "is checkout healthy right now" for seconds. Caching the second turns the assistant into an incident: someone asks whether a service recovered, gets a ten-minute-old "healthy", and stops investigating.
 
 So cacheability is a property of the *tool*, via `LIVE_TOOLS`, not of the request. Every key carries role scope and index version, because omitting the first is a data leak and omitting the second serves stale chunks after a re-index.
 
@@ -211,11 +211,11 @@ It fails in the right direction too: a real claim with a mistyped ref is dropped
 
 That is the difference between human-in-the-loop as a production pattern and as a demo — polling loops do not survive a deploy or a pod eviction.
 
-**"How do you keep generated SQL safe?"**
+**"How do you keep generated PromQL safe?"**
 
-Four layers, and I would name the fourth first because it is the only guarantee: a database-level read-only role. Layers one to three are application-level and defeatable in principle.
+Four layers, and I would name the fourth first because it is the only guarantee: a read-only Prometheus HTTP endpoint. Layers one to three are application-level and defeatable in principle.
 
-Above it: sqlglot AST parsing (not regex — a regex looking for DELETE is defeated by comments and string literals, and there is a regression test for exactly that), a single-statement check, and a forced LIMIT.
+Above it: a metric-name allowlist (PromQL has no parser in the standard library, so instead of an AST the guard extracts every identifier that looks like a metric name and checks it against `ALLOWED_METRIC_PREFIXES` — an allowlist of good names, not a regex looking for bad keywords), a forbidden-function check (`label_replace`, subqueries nesting range selectors), and a forced bounded time range.
 
 **"What stops someone quietly breaking the design?"**
 
