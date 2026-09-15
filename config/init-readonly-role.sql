@@ -5,7 +5,7 @@
 -- defeated and a missing GRANT cannot. If a prompt injection produces a DELETE that slips past
 -- every application-layer check, this role rejects it at the database.
 
-CREATE ROLE sentinel_readonly LOGIN PASSWORD 'sentinel_readonly';
+CREATE ROLE sentinel_readonly LOGIN PASSWORD 'sentinel';
 
 GRANT CONNECT ON DATABASE sentinel TO sentinel_readonly;
 GRANT USAGE ON SCHEMA public TO sentinel_readonly;

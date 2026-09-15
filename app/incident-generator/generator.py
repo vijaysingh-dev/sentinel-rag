@@ -13,13 +13,23 @@ already uses.
 incidents.jsonl is the ground truth this scenario produces: one line per state change, with the
 flag, the fault variant, and a wall-clock timestamp. Session B5 in roadmap.sh correlates this
 against what the health-tree rollup and the RCA agent's own findings say happened.
+
+Triggering is manual-only (the chat UI's platform panel calls POST /trigger/{name}) — the random
+scheduler that used to fire scenarios on its own is disabled below. Automatic incidents made a
+question like "why did checkout just fail" ambiguous about whether it was cause or coincidence
+while someone was actively driving a scenario from the UI; a human (or a future scripted caller)
+deciding when a fault starts keeps ground truth unambiguous.
+
+No SSE stream here, unlike system-monitor: this service's state only ever changes in direct
+response to a request this same panel already made (POST /trigger). There's no background loop
+that could push a change the client didn't cause itself, so a snapshot fetched on open and again
+after each trigger tells the client everything a push channel would.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import random
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -32,9 +42,6 @@ from fastapi import FastAPI, HTTPException
 SCENARIOS_PATH = Path(__file__).parent / "scenarios.yaml"
 FLAGD_CONFIG_PATH = Path("/etc/flagd/demo.flagd.json")
 INCIDENT_LOG_PATH = Path("/app/data/incidents.jsonl")
-
-MIN_GAP_S = 60
-MAX_GAP_S = 240
 
 _lock = threading.Lock()
 
@@ -113,6 +120,10 @@ class State:
 state = State()
 
 
+def snapshot() -> dict[str, Any]:
+    return {"active": state.active, "recent": state.history[-10:]}
+
+
 async def run_scenario(scenario: dict[str, Any]) -> None:
     set_flag(scenario["flag"], scenario["fault_variant"])
     record = log_event("incident_start", scenario)
@@ -124,21 +135,10 @@ async def run_scenario(scenario: dict[str, Any]) -> None:
     state.active = None
 
 
-async def scheduler_loop() -> None:
-    while True:
-        await asyncio.sleep(random.uniform(MIN_GAP_S, MAX_GAP_S))
-        if state.active is not None:
-            continue  # one incident at a time — overlapping faults make the ground truth ambiguous
-        scenario = random.choice(list(SCENARIOS.values()))
-        await run_scenario(scenario)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     reset_all_flags()
-    task = asyncio.create_task(scheduler_loop())
     yield
-    task.cancel()
 
 
 app = FastAPI(title="incident-generator", lifespan=lifespan)
@@ -151,7 +151,7 @@ def list_scenarios() -> dict[str, Any]:
 
 @app.get("/status")
 def status() -> dict[str, Any]:
-    return {"active": state.active, "recent": state.history[-10:]}
+    return snapshot()
 
 
 @app.post("/trigger/{name}")

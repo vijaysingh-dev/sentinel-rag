@@ -20,7 +20,7 @@ Every claim here is backed by code in `sentinel/` and by a runnable script in `s
 | 6. Reranking | _(pending)_ | `reranking/` | `scripts/reranking/` | `benchmarks/retrieval_sweep.py` |
 | 7. Generation | _(pending)_ | `generation/` | `scripts/llm/` | — |
 | 8. Evaluation | _(pending)_ | `evaluation/` | `scripts/evaluation/` | all |
-| 9. Agent layer | _(pending)_ | `rca/` | `make api` | `tests/test_trajectory.py` |
+| 9. Agent layer | _(pending)_ | `rca/` | `make chat-server` | `tests/test_trajectory.py` |
 
 Each stage gets its own `docs/stages/<stage>.md` as it is worked through; the _(pending)_ rows have their summary here only, for now.
 

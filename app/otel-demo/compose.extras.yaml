@@ -166,12 +166,20 @@ services:
     build:
       context: /projects/sentinel-rag/app/system-monitor
     container_name: system-monitor
+    networks:
+      - default
+      - infra
     ports:
       - "8091:8000"
     volumes:
       # Read-only access to the Docker API is how this service reads every other container's
       # own healthcheck state instead of reimplementing gRPC/HTTP/TCP probes per service.
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # `infra` network membership (above) is what makes these container-name hostnames
+      # resolvable — same network product-catalog and cart themselves reach postgres/redis over.
+      - MONITOR_REDIS_URL=redis://redis:6379/1
+      - MONITOR_POSTGRES_DSN=postgresql://astronomy_user:astronomy_password@postgres:5432/astronomy_db
 
   incident-generator:
     build:

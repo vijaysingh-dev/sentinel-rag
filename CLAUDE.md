@@ -33,7 +33,10 @@ benchmarks/       bake-offs producing markdown leaderboards
 tests/            ACL, pipeline, parsing, trajectory — all run without cloud credentials
 docs/             STAGE-OVERVIEW.md is the map; docs/stages/<stage>.md is the deep dive per stage
 .archive/providers/  retired Azure/AWS embed/vectorstore/rerank/llm adapters — see its README
+app/otel-demo/    vendored copy of the OpenTelemetry Demo, the target system Sentinel investigates
 ```
+
+`app/otel-demo/` is a personal, learning-purpose copy of the upstream OpenTelemetry Demo, kept for local use only — it is not pushed to any remote and its own `AGENTS.md` (upstream's contribution policy) does not bind changes made here. Treat it as freely editable in service of this project, unlike everything under `sentinel/`, which follows the invariants and house style below.
 
 ## Commands
 
@@ -49,7 +52,6 @@ make test             # full suite, no infrastructure required
 make eval             # deterministic retrieval evaluation + CI gate
 make eval-agent       # replay the RCA agent against recorded incident fixtures (needs an LLM)
 make bench-parsers    # parser bake-off
-make api              # RCA API (custom SSE) on :8080
 make chat-server      # RCA graph over the LangGraph protocol on :2024, for web/
 make chat-ui          # the Agent Chat UI (web/), talks to chat-server
 ```
@@ -62,17 +64,19 @@ Run `make doctor` first when something is unexpectedly failing. Most "broken" st
 
 Both `sentinel-rag/docker-compose.yml` (langfuse) and `app/otel-demo/compose.extras.yaml` (product-catalog, cart, otel-collector) join the `infra` network as an `external: true` network and reach `postgres`/`redis` by container name — see either file's header comment for the full reasoning. `make up` checks both are reachable and fails fast with a pointer back here if they aren't; it never starts or stops them.
 
-One-time setup (or after a fresh machine — `sentinel-rag_pgdata` is the volume the commands below expect to already exist; on a genuinely fresh install, drop the `-v sentinel-rag_pgdata:...` line and Postgres will initialize an empty one, running `config/init-readonly-role.sql` and otel-demo's `astronomy_db` seed automatically via the mounted `docker-entrypoint-initdb.d` directory):
+The container's own bootstrap identity (`POSTGRES_USER`/`POSTGRES_DB`) is `postgres`/`postgres` — Postgres's own maintenance-db convention, not any one project's name, since this container is shared, global infra with no inherent relationship to Sentinel-RAG. Sentinel-RAG's own database (`sentinel`, owned by role `sentinelapp`) and otel-demo's (`astronomy_db`, owned by `astronomy_user`) are created inside it afterwards, the same way you'd create any other project's database on a shared Postgres instance — see `docs/design-decisions.md` for when each gets created.
+
+One-time setup (or after a fresh machine — `sentinel-rag_pgdata` is the volume the commands below expect to already exist; on a genuinely fresh install, drop the `-v sentinel-rag_pgdata:...` line and Postgres will initialize an empty one, running otel-demo's `astronomy_db` seed automatically via the mounted `docker-entrypoint-initdb.d` directory — `config/init-readonly-role.sql` is staged there too but only once the `sentinel` database it grants against actually exists):
 
 ```bash
 docker network create infra
 
 docker run -d --name postgres --network infra --restart unless-stopped \
-  -e POSTGRES_USER=sentinel -e POSTGRES_PASSWORD=sentinel -e POSTGRES_DB=sentinel \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres \
   -p 5432:5432 \
   -v sentinel-rag_pgdata:/var/lib/postgresql/data \
   -v "$HOME/.local/share/sentinel-rag/runtime/pg-init:/docker-entrypoint-initdb.d:ro" \
-  --health-cmd "pg_isready -U sentinel" --health-interval 5s --health-retries 10 \
+  --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10 \
   pgvector/pgvector:pg16
 
 docker run -d --name redis --network infra --restart unless-stopped \
@@ -90,9 +94,9 @@ docker run -d --name portainer --restart unless-stopped \
   portainer/portainer-ce:latest
 ```
 
-`~/.local/share/sentinel-rag/runtime/pg-init/` holds the staged, 0644-permission copies of `config/init-readonly-role.sql` (as `10-readonly.sql`) and `app/otel-demo/src/postgresql/init.sql` (as `20-astronomy-db.sql`) — staged rather than bind-mounted directly from the repo because a fuseblk-style checkout mount (see `app/otel-demo/compose.extras.yaml`'s header comment) makes the repo copies unreadable to the container. Re-stage by hand if either source file changes; `make up`/`make otel-demo-up` no longer do it automatically now that postgres isn't compose-managed.
+`~/.local/share/sentinel-rag/runtime/pg-init/` holds staged, 0644-permission copies of init SQL — staged rather than bind-mounted directly from the repo because a fuseblk-style checkout mount (see `app/otel-demo/compose.extras.yaml`'s header comment) makes the repo copies unreadable to the container. It holds `app/otel-demo/src/postgresql/init.sql` (as `20-astronomy-db.sql`, creates `astronomy_user`/`astronomy_db`) and `config/init-readonly-role.sql` (as `10-readonly.sql`, grants `sentinel_readonly` against the `sentinel` database). Both only run automatically on a genuinely empty volume; `config/init-sentinel-db.sql` (creates `sentinelapp`/`sentinel` themselves) is deliberately *not* staged, since `sentinelapp` needs `CREATEDB` or a superuser to run it and it should only ever run once — apply it by hand (`docker exec -i postgres psql -U postgres < config/init-sentinel-db.sql`) on a fresh volume before `10-readonly.sql` can succeed. Re-stage any file by hand if its source changes; `make up`/`make otel-demo-up` no longer do it automatically now that postgres isn't compose-managed.
 
-Redis is a pure cache with no volume — restarting it is always safe and loses nothing that matters (cart's Valkey traffic lives on logical DB 1; Sentinel's own cache is DB 0, see `sentinel/core/cache.py`).
+Redis is a pure cache with no volume — restarting it is always safe and loses nothing that matters. It is shared, global infra the same way postgres is, so each app claims its own logical DB index rather than sharing DB 0: Sentinel's own cache is DB 0 (redis's default, not a project-picked name), otel-demo's Valkey-cart traffic is namespaced onto DB 1 (`app/otel-demo/.env.override`). A third consumer of this redis should claim DB 2, not share 0 or 1. Every key Sentinel writes also carries a `sentinel:` prefix (`settings.redis_key_prefix`, see `sentinel/core/cache.py`) on top of the DB split — belt-and-suspenders so a misconfigured DB index produces a visibly foreign key instead of a silent collision, same spirit as postgres's dedicated `sentinelapp` role rather than reusing the bootstrap login.
 
 ## Non-negotiable invariants
 

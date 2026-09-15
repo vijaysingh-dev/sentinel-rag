@@ -182,7 +182,7 @@ class EmbeddingCache:
         self.ttl = ttl if ttl is not None else settings.embedding_cache_ttl
 
     def _key(self, text: str) -> str:
-        return f"emb:{self.model}:{hashlib.sha256(text.encode()).hexdigest()}"
+        return f"{settings.redis_key_prefix}:emb:{self.model}:{hashlib.sha256(text.encode()).hexdigest()}"
 
     def get_many(self, texts: list[str]) -> list[list[float] | None]:
         try:
@@ -220,7 +220,7 @@ class RetrievalCache:
 
     def _key(self, query: str, scope: str, extra: dict[str, Any]) -> str:
         fingerprint = hashlib.sha256(json.dumps(extra, sort_keys=True, default=str).encode()).hexdigest()[:12]
-        return f"ret:{settings.index_version}:{scope}:{fingerprint}:{_hash(query)}"
+        return f"{settings.redis_key_prefix}:ret:{settings.index_version}:{scope}:{fingerprint}:{_hash(query)}"
 
     def get(self, query: str, scope: str, **extra: Any) -> list[dict] | None:
         try:
@@ -255,7 +255,7 @@ class SemanticAnswerCache:
         self.ttl = ttl or settings.answer_cache_ttl
 
     def _namespace(self, scope: str) -> str:
-        return f"ans:{settings.index_version}:{scope}"
+        return f"{settings.redis_key_prefix}:ans:{settings.index_version}:{scope}"
 
     def get(self, query: str, scope: str) -> dict | None:
         try:

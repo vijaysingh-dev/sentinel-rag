@@ -22,6 +22,7 @@ import {
   SquarePen,
   XIcon,
   Plus,
+  Activity,
 } from "lucide-react";
 import { useQueryState, parseAsBoolean } from "nuqs";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
@@ -30,13 +31,6 @@ import { toast } from "sonner";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
-import { GitHubSVG } from "../icons/github";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { ContentBlocksPreview } from "./ContentBlocksPreview";
 import {
@@ -45,6 +39,9 @@ import {
   ArtifactTitle,
   useArtifactContext,
 } from "./artifact";
+import { PlatformPanel } from "./platform-panel";
+
+const THREAD_HISTORY_WIDTH = 240; // 80% of the original 300px
 
 function StickyToBottomContent(props: {
   content: ReactNode;
@@ -87,30 +84,6 @@ function ScrollToBottom(props: { className?: string }) {
   );
 }
 
-function OpenGitHubRepo() {
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <a
-            href="https://github.com/langchain-ai/agent-chat-ui"
-            target="_blank"
-            className="flex items-center justify-center"
-          >
-            <GitHubSVG
-              width="24"
-              height="24"
-            />
-          </a>
-        </TooltipTrigger>
-        <TooltipContent side="left">
-          <p>Open GitHub repo</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
 export function Thread() {
   const [artifactContext, setArtifactContext] = useArtifactContext();
   const [artifactOpen, closeArtifact] = useArtifactOpen();
@@ -122,6 +95,10 @@ export function Thread() {
   );
   const [hideToolCalls, setHideToolCalls] = useQueryState(
     "hideToolCalls",
+    parseAsBoolean.withDefault(false),
+  );
+  const [platformPanelOpen, setPlatformPanelOpen] = useQueryState(
+    "platformPanelOpen",
     parseAsBoolean.withDefault(false),
   );
   const [input, setInput] = useState("");
@@ -260,13 +237,13 @@ export function Thread() {
       <div className="relative hidden lg:flex">
         <motion.div
           className="absolute z-20 h-full overflow-hidden border-r bg-white"
-          style={{ width: 300 }}
+          style={{ width: THREAD_HISTORY_WIDTH }}
           animate={
             isLargeScreen
-              ? { x: chatHistoryOpen ? 0 : -300 }
-              : { x: chatHistoryOpen ? 0 : -300 }
+              ? { x: chatHistoryOpen ? 0 : -THREAD_HISTORY_WIDTH }
+              : { x: chatHistoryOpen ? 0 : -THREAD_HISTORY_WIDTH }
           }
-          initial={{ x: -300 }}
+          initial={{ x: -THREAD_HISTORY_WIDTH }}
           transition={
             isLargeScreen
               ? { type: "spring", stiffness: 300, damping: 30 }
@@ -275,7 +252,7 @@ export function Thread() {
         >
           <div
             className="relative h-full"
-            style={{ width: 300 }}
+            style={{ width: THREAD_HISTORY_WIDTH }}
           >
             <ThreadHistory />
           </div>
@@ -286,6 +263,11 @@ export function Thread() {
         className={cn(
           "grid w-full grid-cols-[1fr_0fr] transition-all duration-500",
           artifactOpen && "grid-cols-[3fr_2fr]",
+          // Platform status is a narrow status sidebar, not a document/code viewer like the
+          // artifact panel — it doesn't need anywhere near 40% of the width. 68/32 is the
+          // artifact panel's 60/40 split with the right side taken down to 80% of its share
+          // (40% * 0.8 = 32%).
+          !artifactOpen && platformPanelOpen && "grid-cols-[80fr_20fr]",
         )}
       >
         <motion.div
@@ -295,10 +277,14 @@ export function Thread() {
           )}
           layout={isLargeScreen}
           animate={{
-            marginLeft: chatHistoryOpen ? (isLargeScreen ? 300 : 0) : 0,
+            marginLeft: chatHistoryOpen
+              ? isLargeScreen
+                ? THREAD_HISTORY_WIDTH
+                : 0
+              : 0,
             width: chatHistoryOpen
               ? isLargeScreen
-                ? "calc(100% - 300px)"
+                ? `calc(100% - ${THREAD_HISTORY_WIDTH}px)`
                 : "100%"
               : "100%",
           }}
@@ -325,8 +311,14 @@ export function Thread() {
                   </Button>
                 )}
               </div>
-              <div className="absolute top-2 right-4 flex items-center">
-                <OpenGitHubRepo />
+              <div className="absolute top-2 right-4 flex items-center gap-2">
+                <TooltipIconButton
+                  tooltip="Platform status"
+                  variant={platformPanelOpen ? "secondary" : "ghost"}
+                  onClick={() => setPlatformPanelOpen((p) => !p)}
+                >
+                  <Activity className="size-5" />
+                </TooltipIconButton>
               </div>
             </div>
           )}
@@ -372,7 +364,13 @@ export function Thread() {
 
               <div className="flex items-center gap-4">
                 <div className="flex items-center">
-                  <OpenGitHubRepo />
+                  <TooltipIconButton
+                    tooltip="Platform status"
+                    variant={platformPanelOpen ? "secondary" : "ghost"}
+                    onClick={() => setPlatformPanelOpen((p) => !p)}
+                  >
+                    <Activity className="size-5" />
+                  </TooltipIconButton>
                 </div>
                 <TooltipIconButton
                   size="lg"
@@ -546,17 +544,42 @@ export function Thread() {
           </StickToBottom>
         </motion.div>
         <div className="relative flex flex-col border-l">
-          <div className="absolute inset-0 flex min-w-[30vw] flex-col">
-            <div className="grid grid-cols-[1fr_auto] border-b p-4">
-              <ArtifactTitle className="truncate overflow-hidden" />
-              <button
-                onClick={closeArtifact}
-                className="cursor-pointer"
-              >
-                <XIcon className="size-5" />
-              </button>
-            </div>
-            <ArtifactContent className="relative flex-grow" />
+          {/* No min-w here: the grid-cols ratio a few lines up is the single source of truth for
+              this column's width (artifact vs. platform panel each set their own). A hardcoded
+              minimum here would fight that ratio instead of respecting it, the way `min-w-[30vw]`
+              used to force this wider than a narrow platform-panel ratio actually asked for. */}
+          <div className="absolute inset-0 flex flex-col">
+            {artifactOpen ? (
+              <>
+                <div className="grid grid-cols-[1fr_auto] border-b p-4">
+                  <ArtifactTitle className="truncate overflow-hidden" />
+                  <button
+                    onClick={closeArtifact}
+                    className="cursor-pointer"
+                  >
+                    <XIcon className="size-5" />
+                  </button>
+                </div>
+                <ArtifactContent className="relative flex-grow" />
+              </>
+            ) : (
+              platformPanelOpen && (
+                <>
+                  <div className="grid grid-cols-[1fr_auto] border-b p-4">
+                    <span className="truncate overflow-hidden font-semibold">
+                      Platform status
+                    </span>
+                    <button
+                      onClick={() => setPlatformPanelOpen(false)}
+                      className="cursor-pointer"
+                    >
+                      <XIcon className="size-5" />
+                    </button>
+                  </div>
+                  <PlatformPanel />
+                </>
+              )
+            )}
           </div>
         </div>
       </div>

@@ -1,9 +1,16 @@
 # Parent -> child dependency graph for the health rollup.
 #
-# Derived from app/otel-demo/compose.yaml's `depends_on` blocks, not hand-invented: this is the
-# same graph compose itself uses to decide start order, so the tree stays truthful to what the
-# platform actually declares as its own dependencies instead of a diagram someone drew once and
-# never updated.
+# This is NOT compose.yaml's `depends_on` graph — that was tried first and reads badly: `frontend`
+# depends_on nearly every backend service just to call them at request time, so nesting on
+# depends_on made almost the whole platform show up as "part of frontend" and put cart,
+# product-catalog etc. under two or three parents at once (frontend AND checkout AND
+# recommendation), which reads as three different cart instances instead of one service three
+# things call. What actually matters for a human scanning this panel is service *ownership*, not
+# startup ordering: which service is the one thing that fails when this leaf fails, and would you
+# say "that's part of frontend" or "that's part of checkout" about it. Every node below appears in
+# exactly one place, chosen by which caller most conceptually owns it, so the tree stays a tree,
+# not the full call-graph DAG (that DAG is real — see each service's own _ADDR env vars in
+# compose.yaml if you need it — this view is deliberately a simplification of it).
 #
 # Deliberately excluded: otel-collector, flagd, load-generator. Every service depends on the first
 # two for tracing/config, so including them would collapse the tree into "everything's parent is
@@ -11,42 +18,61 @@
 # a platform component — its death means "we stopped measuring", not "the platform is down". Same
 # reasoning as sentinel's own "what does not go through RAG" boundary: excluding the noisy,
 # always-there dependency is as much the design as including the real ones.
-#
-# This is a DAG, not a strict tree — cart and product-catalog each have two parents. The monitor
-# computes each node's status once and propagates it to every parent that depends on it.
 
 roots:
-  - frontend-proxy
+  - astroshop
 
 nodes:
-  frontend-proxy:
-    depends_on: [frontend, flagd-ui, telemetry-docs]
+  # astroshop is a tree.yaml-only name — the underlying container is frontend-proxy (the Envoy
+  # proxy in front of the actual frontend service). `container:` is how a node's Docker lookup
+  # name can differ from the name this tree and the panel use for it.
+  astroshop:
+    container: frontend-proxy
+    depends_on:
+      [frontend, checkout, recommendation, cart, product-catalog, image-provider, flagd-ui, telemetry-docs]
   frontend:
-    depends_on: [ad, cart, checkout, currency, product-catalog, quote, recommendation, shipping, image-provider]
+    depends_on: [ad]
   checkout:
-    depends_on: [cart, currency, email, payment, product-catalog, shipping]
+    depends_on: [currency, email, payment, shipping]
+  shipping:
+    depends_on: [quote]
+  # No children of its own to show: recommendation's only call is to product-catalog, which is
+  # already a top-level sibling (see the cart/product-catalog note below) rather than nested here.
   recommendation:
-    depends_on: [product-catalog]
-  cart:
-    depends_on: [valkey-cart]
-  product-catalog:
-    depends_on: [astronomy-db]
+    depends_on: []
 
   # leaves — no further dependencies tracked
   ad: {depends_on: []}
   currency: {depends_on: []}
   email: {depends_on: []}
   payment: {depends_on: []}
-  shipping: {depends_on: []}
-  image-provider: {depends_on: []}
   quote: {depends_on: []}
+  image-provider: {depends_on: []}
   flagd-ui: {depends_on: []}
   telemetry-docs: {depends_on: []}
-  valkey-cart: {depends_on: []}
-  astronomy-db: {depends_on: []}
 
-# Services in this list have no container-level healthcheck defined in compose.yaml, so Docker
-# never populates State.Health and the monitor falls back to "is the container running at all"
-# as the health signal. Weaker than a real healthcheck (a wedged-but-running process reads as
-# healthy) — worth knowing about before trusting this service's status too far.
-no_healthcheck: [cart]
+  # cart and product-catalog are called by more than one thing (frontend, checkout,
+  # recommendation) but are owned by neither — they're their own services with their own state
+  # (redis, postgres), so they sit at the top level rather than nested under whichever caller
+  # happened to be listed first. Their own datastore is a real dependency worth tracking
+  # underneath them, unlike the rest of this tree's leaves.
+  cart:
+    depends_on: [redis]
+  product-catalog:
+    depends_on: [astronomy-db]
+
+  # Synthetic nodes: `check: ping` means this node's health comes from monitor.py actually
+  # connecting — a Redis PING, a Postgres SELECT 1 — rather than a Docker container lookup. Both
+  # are shared, always-on infra containers (see sentinel-rag/CLAUDE.md's infra-layer section)
+  # outside this compose project, reached over the `infra` Docker network by container name; a
+  # Docker healthcheck lookup on them would answer "is the container up", not "can product-catalog
+  # actually query its database right now", which is the question that matters here.
+  redis:
+    check: ping
+    depends_on: []
+  astronomy-db:
+    check: ping
+    depends_on: []
+
+display_names:
+  astroshop: Astroshop

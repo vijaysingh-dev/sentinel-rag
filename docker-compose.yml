@@ -28,7 +28,7 @@ services:
       - infra
     ports: ["3000:3000"]
     environment:
-      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinel
+      DATABASE_URL: postgresql://sentinelapp:sentinel@postgres:5432/sentinel
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: dev-secret-not-for-production
       SALT: dev-salt-not-for-production

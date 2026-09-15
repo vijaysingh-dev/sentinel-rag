@@ -36,7 +36,7 @@ up:  ## Start langfuse (postgres/redis are the standalone always-on `infra` cont
 	@# the one thing that actually is project-local: langfuse.
 	@docker network inspect infra >/dev/null 2>&1 || { \
 	    echo "no 'infra' network — postgres/redis haven't been started yet; see CLAUDE.md for the docker run commands"; exit 1; }
-	@docker exec postgres pg_isready -U sentinel >/dev/null 2>&1 || { \
+	@docker exec postgres pg_isready -U postgres >/dev/null 2>&1 || { \
 	    echo "postgres isn't running on the infra network — see CLAUDE.md for the docker run command"; exit 1; }
 	@docker exec redis redis-cli ping >/dev/null 2>&1 || { \
 	    echo "redis isn't running on the infra network — see CLAUDE.md for the docker run command"; exit 1; }
@@ -66,8 +66,8 @@ demo-up:  ## Start the OpenTelemetry Demo (Astroshop) with Prometheus, Jaeger an
 
 otel-demo-up:  ## make up + make demo-up in the right order, with the astronomy_db seed applied against the shared postgres
 	$(MAKE) up
-	@docker exec postgres psql -U sentinel -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'astronomy_db'" | grep -q 1 \
-	    || docker exec -i postgres psql -U sentinel -d postgres < $(OTEL_DEMO)/src/postgresql/init.sql
+	@docker exec postgres psql -U postgres -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'astronomy_db'" | grep -q 1 \
+	    || docker exec -i postgres psql -U postgres -d postgres < $(OTEL_DEMO)/src/postgresql/init.sql
 	$(MAKE) demo-up
 
 demo-down:  ## Stop the OpenTelemetry Demo
@@ -110,9 +110,6 @@ bench-chunking:  ## Chunking strategy sweep
 
 bench-retrieval:  ## Retrieval configuration sweep
 	uv run python benchmarks/retrieval_sweep.py
-
-api:  ## Run the RCA API (custom SSE API on :8080)
-	uv run uvicorn sentinel.rca.api:app --reload --port 8080
 
 chat-server:  ## Serve the RCA graph over the LangGraph protocol for the web/ chat UI (:2024)
 	uv sync --extra chat

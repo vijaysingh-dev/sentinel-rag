@@ -91,20 +91,16 @@ intake → supervisor ⇄ {knowledge, data, change}
 ```
 
 ```bash
-make api
-
-curl -XPOST localhost:8080/v1/investigations -H 'content-type: application/json' -d '{
-  "anomaly_id": "INC-2607",
-  "tenant_id": "acme",
-  "roles": ["admin"],
-  "anomaly": {"summary": "checkout error ratio / latency crossed its alert threshold",
-              "alerting_service": "checkout", "started_at": "2026-07-26T14:31:00Z",
-              "signal": "error_ratio"}}'
-
-curl -N localhost:8080/v1/investigations/INC-2607/stream
-curl -XPOST localhost:8080/v1/investigations/INC-2607/decision \
-     -H 'content-type: application/json' -d '{"action":"approve","reviewer":"vijay"}'
+make chat-server   # serves the `rca` graph over the LangGraph Platform protocol on :2024
+make chat-ui       # the Agent Chat UI (web/), talks to chat-server — the normal way to drive this
 ```
+
+`chat-server` is a stock `langgraph dev` process, so any LangGraph Platform client works against it —
+the threads/runs/stream API already gives you async start, SSE streaming and interrupt-resume for
+free (`POST /threads/{id}/runs`, `GET .../runs/{run_id}/stream`, resume via `command: {resume: ...}`);
+there is no bespoke Sentinel HTTP surface to learn. `rca/state.py::new_state` is the input shape and
+`rca/agents/writer.py`'s `approval_node`/`publish_node` are the interrupt/resume pair, same as the
+graph itself.
 
 ## Evaluation
 

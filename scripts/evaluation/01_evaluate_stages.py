@@ -51,10 +51,18 @@ async def run(args: argparse.Namespace) -> int:
         suffix = f"   95% CI [{interval[0]:.3f}, {interval[1]:.3f}]" if interval else ""
         print(f"  {key:22s} {value:.4f}{suffix}")
 
-    wide = retrieval.metrics.get(f"recall@{args.k}", 0)
-    narrow = retrieval.metrics.get(f"recall@{args.top_n}", 0)
+    wide_key, narrow_key = f"recall@{args.k}", f"recall@{args.top_n}"
+    wide, narrow = retrieval.metrics.get(wide_key), retrieval.metrics.get(narrow_key)
     print("\n  diagnosis:")
-    if wide - narrow > 0.15:
+    if wide is None or narrow is None:
+        # Both keys come from examples with relevant_chunk_ids populated (see retrieval_eval.py).
+        # A golden set scored entirely via answer_substrings has neither — that is a labeling gap,
+        # not a signal that retrieval found nothing, so it must not be conflated with recall=0.0.
+        print(
+            f"    {wide_key}/{narrow_key} not measured — no golden example has relevant_chunk_ids "
+            f"populated. Recall/MRR/nDCG need that field; substring_hit does not require it."
+        )
+    elif wide - narrow > 0.15:
         print(
             f"    recall@{args.k}={wide:.3f} but recall@{args.top_n}={narrow:.3f} — the answers "
             f"are being retrieved but ranked badly. Invest in reranking."

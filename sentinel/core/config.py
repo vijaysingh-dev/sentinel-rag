@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     local_llm_model: str = "qwen2.5:7b-instruct"
     local_llm_cheap_model: str = "llama3.2:3b"
 
-    pgvector_dsn: str = "postgresql+psycopg://sentinel:sentinel@localhost:5432/sentinel"
+    pgvector_dsn: str = "postgresql+psycopg://sentinelapp:sentinel@localhost:5432/sentinel"
     pgvector_collection: str = "ops_knowledge"
 
     # -------------------------------------------------------------------------- OpenAI (embed/llm)
@@ -131,6 +131,10 @@ class Settings(BaseSettings):
 
     # --------------------------------------------------------------------------------- cache
     redis_url: str = "redis://localhost:6379/0"
+    # Belt-and-suspenders alongside the logical-DB split (Sentinel on DB 0, otel-demo's
+    # valkey-cart on DB 1, see CLAUDE.md): every key this module writes carries this prefix too,
+    # so a misconfigured DB index produces a visibly foreign key instead of a silent collision.
+    redis_key_prefix: str = "sentinel"
     cache_enabled: bool = True
     embedding_cache_ttl: int | None = None  # None = never expire; keyed by content hash
     retrieval_cache_ttl: int = 900

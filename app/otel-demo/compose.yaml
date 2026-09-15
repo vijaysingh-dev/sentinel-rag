@@ -99,6 +99,12 @@ services:
       - OTEL_RESOURCE_ATTRIBUTES=${OTEL_RESOURCE_ATTRIBUTES},service.criticality=high
       - OTEL_SERVICE_NAME=cart
       - ASPNETCORE_URLS=http://*:${CART_PORT}
+    healthcheck:
+      test: ["CMD", "/bin/grpc_health_probe", "-addr=:${CART_PORT}"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 20
     depends_on:
       valkey-cart:
         condition: service_healthy

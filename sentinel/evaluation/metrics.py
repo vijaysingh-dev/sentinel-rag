@@ -87,7 +87,18 @@ def aggregate(rows: list[dict], keys: Sequence[str] | None = None) -> dict[str, 
     """Means over a list of per-example metric dicts, ignoring None values."""
     if not rows:
         return {}
-    keys = keys or [k for k, v in rows[0].items() if isinstance(v, (int, float))]
+    if keys is None:
+        # Union across rows, not just rows[0]: categories like acl_denied/unanswerable contribute
+        # different keys than answerable ones, and even among answerable rows, recall/mrr/ndcg are
+        # only present when relevant_chunk_ids was populated for that example. Keying off rows[0]
+        # alone would silently drop a metric whenever the first row happened to lack it.
+        keys = []
+        seen = set()
+        for r in rows:
+            for k, v in r.items():
+                if isinstance(v, (int, float)) and k not in seen:
+                    seen.add(k)
+                    keys.append(k)
     out: dict[str, float] = {}
     for key in keys:
         values = [r[key] for r in rows if isinstance(r.get(key), (int, float))]
