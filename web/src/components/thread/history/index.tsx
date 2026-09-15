@@ -1,9 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { useThreads } from "@/providers/Thread";
-import { Thread } from "@langchain/langgraph-sdk";
+import { useStreamContext } from "@/providers/Stream";
+import { ChatSession } from "@/lib/chat-types";
 import { useEffect } from "react";
 
-import { getContentString } from "../utils";
 import { useQueryState, parseAsBoolean } from "nuqs";
 import {
   Sheet,
@@ -15,49 +15,36 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PanelRightOpen, PanelRightClose } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 
-function ThreadList({
-  threads,
-  onThreadClick,
+function SessionList({
+  sessions,
+  onSessionClick,
 }: {
-  threads: Thread[];
-  onThreadClick?: (threadId: string) => void;
+  sessions: ChatSession[];
+  onSessionClick?: () => void;
 }) {
-  const [threadId, setThreadId] = useQueryState("threadId");
+  const { sessionId, loadSession } = useStreamContext();
 
   return (
     <div className="flex h-full w-full flex-col items-start justify-start gap-2 overflow-y-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-track]:bg-transparent">
-      {threads.map((t) => {
-        let itemText = t.thread_id;
-        if (
-          typeof t.values === "object" &&
-          t.values &&
-          "messages" in t.values &&
-          Array.isArray(t.values.messages) &&
-          t.values.messages?.length > 0
-        ) {
-          const firstMessage = t.values.messages[0];
-          itemText = getContentString(firstMessage.content);
-        }
-        return (
-          <div
-            key={t.thread_id}
-            className="w-full px-1"
+      {sessions.map((s) => (
+        <div
+          key={s.session_id}
+          className="w-full px-1"
+        >
+          <Button
+            variant="ghost"
+            className="w-full items-start justify-start text-left font-normal"
+            onClick={(e) => {
+              e.preventDefault();
+              onSessionClick?.();
+              if (s.session_id === sessionId) return;
+              loadSession(s.session_id);
+            }}
           >
-            <Button
-              variant="ghost"
-              className="w-full items-start justify-start text-left font-normal"
-              onClick={(e) => {
-                e.preventDefault();
-                onThreadClick?.(t.thread_id);
-                if (t.thread_id === threadId) return;
-                setThreadId(t.thread_id);
-              }}
-            >
-              <p className="truncate text-ellipsis">{itemText}</p>
-            </Button>
-          </div>
-        );
-      })}
+            <p className="truncate text-ellipsis">{s.title || s.session_id}</p>
+          </Button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -82,16 +69,21 @@ export default function ThreadHistory() {
     parseAsBoolean.withDefault(false),
   );
 
-  const { getThreads, threads, setThreads, threadsLoading, setThreadsLoading } =
-    useThreads();
+  const {
+    getSessions,
+    sessions,
+    setSessions,
+    sessionsLoading,
+    setSessionsLoading,
+  } = useThreads();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setThreadsLoading(true);
-    getThreads()
-      .then(setThreads)
+    setSessionsLoading(true);
+    getSessions()
+      .then(setSessions)
       .catch(console.error)
-      .finally(() => setThreadsLoading(false));
+      .finally(() => setSessionsLoading(false));
   }, []);
 
   return (
@@ -109,14 +101,12 @@ export default function ThreadHistory() {
               <PanelRightClose className="size-5" />
             )}
           </Button>
-          <h1 className="truncate text-xl font-semibold tracking-tight">
-            Thread History
-          </h1>
+          <h1 className="truncate font-semibold">Conversations</h1>
         </div>
-        {threadsLoading ? (
+        {sessionsLoading ? (
           <ThreadHistoryLoading />
         ) : (
-          <ThreadList threads={threads} />
+          <SessionList sessions={sessions} />
         )}
       </div>
       <div className="lg:hidden">
@@ -132,11 +122,11 @@ export default function ThreadHistory() {
             className="flex lg:hidden"
           >
             <SheetHeader>
-              <SheetTitle>Thread History</SheetTitle>
+              <SheetTitle>Conversations</SheetTitle>
             </SheetHeader>
-            <ThreadList
-              threads={threads}
-              onThreadClick={() => setChatHistoryOpen((o) => !o)}
+            <SessionList
+              sessions={sessions}
+              onSessionClick={() => setChatHistoryOpen((o) => !o)}
             />
           </SheetContent>
         </Sheet>

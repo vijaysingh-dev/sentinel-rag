@@ -23,8 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
-# LangGraph API
+# LangGraph API — .langgraph_api is langgraph dev's own local state, still relevant since
+# `make chat-server` (Studio debugging only, see CLAUDE.md) keeps using it.
 .langgraph_api
 .env
 .next/
 next-env.d.ts
+tsconfig.tsbuildinfo

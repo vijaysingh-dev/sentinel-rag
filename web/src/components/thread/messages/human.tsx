@@ -1,150 +1,93 @@
-import { useStreamContext } from "@/providers/Stream";
-import { Message } from "@langchain/langgraph-sdk";
 import { useState } from "react";
-import { getContentString } from "../utils";
-import { cn } from "@/lib/utils";
-import { Textarea } from "@/components/ui/textarea";
-import { BranchSwitcher, CommandBar } from "./shared";
-import { MultimodalPreview } from "@/components/thread/MultimodalPreview";
-import { isBase64ContentBlock } from "@/lib/multimodal-utils";
+import { Pencil, Check, X, Copy } from "lucide-react";
+import { DisplayMessage } from "@/providers/Stream";
+import { useStreamContext } from "@/providers/Stream";
+import { Button } from "../../ui/button";
+import { Textarea } from "../../ui/textarea";
+import { useCopyToClipboard } from "@/components/thread/use-copy-to-clipboard";
 
-function EditableContent({
-  value,
-  setValue,
-  onSubmit,
-}: {
-  value: string;
-  setValue: React.Dispatch<React.SetStateAction<string>>;
-  onSubmit: () => void;
-}) {
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      onSubmit();
+export function HumanMessage({ message }: { message: DisplayMessage }) {
+  const { editMessage, isLoading } = useStreamContext();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+  const { copied, copy } = useCopyToClipboard();
+
+  const submit = () => {
+    const text = draft.trim();
+    if (!text || text === message.content) {
+      setEditing(false);
+      return;
     }
+    setEditing(false);
+    editMessage(message.id, text);
   };
 
-  return (
-    <Textarea
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onKeyDown={handleKeyDown}
-      className="focus-visible:ring-0"
-    />
-  );
-}
-
-export function HumanMessage({
-  message,
-  isLoading,
-}: {
-  message: Message;
-  isLoading: boolean;
-}) {
-  const thread = useStreamContext();
-  const meta = thread.getMessagesMetadata(message);
-  const parentCheckpoint = meta?.firstSeenState?.parent_checkpoint;
-
-  const [isEditing, setIsEditing] = useState(false);
-  const [value, setValue] = useState("");
-  const contentString = getContentString(message.content);
-
-  const handleSubmitEdit = () => {
-    setIsEditing(false);
-
-    const newMessage: Message = { type: "human", content: value };
-    thread.submit(
-      { messages: [newMessage] },
-      {
-        checkpoint: parentCheckpoint,
-        streamMode: ["values"],
-        streamSubgraphs: true,
-        streamResumable: true,
-        optimisticValues: (prev) => {
-          const values = meta?.firstSeenState?.values;
-          if (!values) return prev;
-
-          return {
-            ...values,
-            messages: [...(values.messages ?? []), newMessage],
-          };
-        },
-      },
-    );
-  };
-
-  return (
-    <div
-      className={cn(
-        "group ml-auto flex items-center gap-2",
-        isEditing && "w-full max-w-xl",
-      )}
-    >
-      <div className={cn("flex flex-col gap-2", isEditing && "w-full")}>
-        {isEditing ? (
-          <EditableContent
-            value={value}
-            setValue={setValue}
-            onSubmit={handleSubmitEdit}
-          />
-        ) : (
-          <div className="flex flex-col gap-2">
-            {/* Render images and files if no text */}
-            {Array.isArray(message.content) && message.content.length > 0 && (
-              <div className="flex flex-wrap items-end justify-end gap-2">
-                {message.content.reduce<React.ReactNode[]>(
-                  (acc, block, idx) => {
-                    if (isBase64ContentBlock(block)) {
-                      acc.push(
-                        <MultimodalPreview
-                          key={idx}
-                          block={block}
-                          size="md"
-                        />,
-                      );
-                    }
-                    return acc;
-                  },
-                  [],
-                )}
-              </div>
-            )}
-            {/* Render text if present, otherwise fallback to file/image name */}
-            {contentString ? (
-              <p className="bg-muted ml-auto w-fit rounded-3xl px-4 py-2 text-right whitespace-pre-wrap">
-                {contentString}
-              </p>
-            ) : null}
-          </div>
-        )}
-
-        <div
-          className={cn(
-            "ml-auto flex items-center gap-2 transition-opacity",
-            "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
-            isEditing && "opacity-100",
-          )}
-        >
-          <BranchSwitcher
-            branch={meta?.branch}
-            branchOptions={meta?.branchOptions}
-            onSelect={(branch) => thread.setBranch(branch)}
-            isLoading={isLoading}
-          />
-          <CommandBar
-            isLoading={isLoading}
-            content={contentString}
-            isEditing={isEditing}
-            setIsEditing={(c) => {
-              if (c) {
-                setValue(contentString);
-              }
-              setIsEditing(c);
+  if (editing) {
+    return (
+      <div className="ml-auto flex w-full max-w-xl flex-col items-end gap-1.5">
+        <Textarea
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              submit();
+            } else if (e.key === "Escape") {
+              setDraft(message.content);
+              setEditing(false);
+            }
+          }}
+          className="w-full resize-none bg-white text-right"
+        />
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setDraft(message.content);
+              setEditing(false);
             }}
-            handleSubmitEdit={handleSubmitEdit}
-            isHumanMessage={true}
-          />
+          >
+            <X className="size-3.5" />
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={submit}
+          >
+            <Check className="size-3.5" />
+            Save &amp; retry
+          </Button>
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group flex flex-col items-end gap-1">
+      <p className="bg-muted ml-auto w-fit rounded-3xl px-4 py-2 text-right whitespace-pre-wrap">
+        {message.content}
+      </p>
+      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          aria-label="Copy message"
+          onClick={() => copy(message.content)}
+          className="text-muted-foreground hover:text-foreground p-1"
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </button>
+        {!isLoading && (
+          <button
+            type="button"
+            aria-label="Edit message"
+            onClick={() => setEditing(true)}
+            className="text-muted-foreground hover:text-foreground p-1"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );

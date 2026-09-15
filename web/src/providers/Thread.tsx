@@ -1,7 +1,5 @@
-import { validate } from "uuid";
-import { getApiKey } from "@/lib/api-key";
-import { Thread } from "@langchain/langgraph-sdk";
-import { useQueryState } from "nuqs";
+"use client";
+
 import {
   createContext,
   useContext,
@@ -11,74 +9,40 @@ import {
   Dispatch,
   SetStateAction,
 } from "react";
-import { createClient } from "./client";
+import { ChatSession } from "@/lib/chat-types";
 
+// Renamed internally from "threads" to "sessions" (matching sentinel/chat's own vocabulary —
+// chat_sessions, GET /chat/sessions) but the hook keeps its original name, useThreads, since
+// that's the name every consumer (Stream.tsx, history/index.tsx) already imports.
 interface ThreadContextType {
-  getThreads: () => Promise<Thread[]>;
-  threads: Thread[];
-  setThreads: Dispatch<SetStateAction<Thread[]>>;
-  threadsLoading: boolean;
-  setThreadsLoading: Dispatch<SetStateAction<boolean>>;
+  getSessions: () => Promise<ChatSession[]>;
+  sessions: ChatSession[];
+  setSessions: Dispatch<SetStateAction<ChatSession[]>>;
+  sessionsLoading: boolean;
+  setSessionsLoading: Dispatch<SetStateAction<boolean>>;
 }
 
 const ThreadContext = createContext<ThreadContextType | undefined>(undefined);
 
-function getThreadSearchMetadata(
-  assistantId: string,
-): { graph_id: string } | { assistant_id: string } {
-  if (validate(assistantId)) {
-    return { assistant_id: assistantId };
-  } else {
-    return { graph_id: assistantId };
-  }
-}
-
 export function ThreadProvider({ children }: { children: ReactNode }) {
-  const envApiUrl: string | undefined = process.env.NEXT_PUBLIC_API_URL;
-  const envAssistantId: string | undefined =
-    process.env.NEXT_PUBLIC_ASSISTANT_ID;
-  const envAuthScheme: string | undefined = process.env.NEXT_PUBLIC_AUTH_SCHEME;
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
 
-  const [apiUrl] = useQueryState("apiUrl", {
-    defaultValue: envApiUrl || "",
-  });
-  const [assistantId] = useQueryState("assistantId");
-  const [authScheme] = useQueryState("authScheme", {
-    defaultValue: envAuthScheme || "",
-  });
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [threadsLoading, setThreadsLoading] = useState(false);
+  const getSessions = useCallback(async (): Promise<ChatSession[]> => {
+    const res = await fetch("/api/chat/sessions");
+    if (!res.ok) return [];
+    return res.json();
+  }, []);
 
-  const getThreads = useCallback(async (): Promise<Thread[]> => {
-    const resolvedAssistantId = assistantId || envAssistantId;
-    if (!apiUrl || !resolvedAssistantId) return [];
-    const client = createClient(
-      apiUrl,
-      getApiKey() ?? undefined,
-      authScheme || undefined,
-    );
-
-    const threads = await client.threads.search({
-      metadata: {
-        ...getThreadSearchMetadata(resolvedAssistantId),
-      },
-      limit: 100,
-    });
-
-    return threads;
-  }, [apiUrl, assistantId, authScheme, envAssistantId]);
-
-  const value = {
-    getThreads,
-    threads,
-    setThreads,
-    threadsLoading,
-    setThreadsLoading,
+  const value: ThreadContextType = {
+    getSessions,
+    sessions,
+    setSessions,
+    sessionsLoading,
+    setSessionsLoading,
   };
 
-  return (
-    <ThreadContext.Provider value={value}>{children}</ThreadContext.Provider>
-  );
+  return <ThreadContext.Provider value={value}>{children}</ThreadContext.Provider>;
 }
 
 export function useThreads() {

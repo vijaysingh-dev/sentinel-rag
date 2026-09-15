@@ -16,7 +16,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Anchored to the repo root: an unanchored `lib/` also matched `web/src/lib/`, silently
+# untracking every file under it (confirmed via `git ls-files web/src/lib/` returning nothing) —
+# this is Python packaging boilerplate and was never meant to reach into web/.
+/lib/
 lib64/
 parts/
 sdist/

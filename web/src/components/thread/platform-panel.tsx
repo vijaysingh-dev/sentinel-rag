@@ -29,9 +29,19 @@ interface IncidentRecord {
   note: string;
 }
 
+interface RecentIncident {
+  scenario: string;
+  flag: string;
+  fault_variant: string;
+  note: string;
+  start_ts: number;
+  end_ts: number | null;
+}
+
 interface IncidentStatus {
   active: IncidentRecord | null;
-  recent: IncidentRecord[];
+  // Already paired start/end by the backend (generator.py's snapshot()) — each entry is one run.
+  recent: RecentIncident[];
 }
 
 interface Scenario {
@@ -262,6 +272,16 @@ function formatAgo(ts: number): string {
   return `${Math.floor(s / 3600)}h ago`;
 }
 
+function formatClock(ts: number): string {
+  return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function formatDuration(startTs: number, endTs: number): string {
+  const s = Math.max(0, Math.round(endTs - startTs));
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
 function IncidentGeneratorSection() {
   const [status, setStatus] = useState<IncidentStatus | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -376,10 +396,15 @@ function IncidentGeneratorSection() {
                   )}
                   {[...status.recent].reverse().map((r, i) => (
                     <div
-                      key={`${r.scenario}-${r.ts}-${i}`}
+                      key={`${r.scenario}-${r.start_ts}-${i}`}
                       className="text-xs text-gray-600"
                     >
-                      <span className="text-gray-400">{formatAgo(r.ts)}</span> {r.scenario} ended
+                      <span className="text-gray-400">{formatAgo(r.end_ts ?? r.start_ts)}</span>{" "}
+                      {r.scenario} · {formatClock(r.start_ts)}
+                      {r.end_ts != null && `–${formatClock(r.end_ts)}`}
+                      {r.end_ts != null && (
+                        <span className="text-gray-400"> ({formatDuration(r.start_ts, r.end_ts)})</span>
+                      )}
                     </div>
                   ))}
                 </div>

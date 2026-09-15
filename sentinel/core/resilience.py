@@ -172,6 +172,11 @@ def _classify(exc: Exception) -> tuple[bool, float | None]:
             status = getattr(response, "status_code", None)
             if status is None and isinstance(response, dict):
                 status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    if status is None:
+        # google.api_core.exceptions.GoogleAPICallError (e.g. ServiceUnavailable for a 503) puts
+        # the HTTP-equivalent status on `.code`, not `.status_code` — the one shape this generic
+        # walk didn't already cover, and the one that hit production first.
+        status = getattr(exc, "code", None)
 
     # botocore throttling surfaces by error code rather than status in several services.
     code = (

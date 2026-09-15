@@ -111,7 +111,9 @@ def build_graph(checkpointer: BaseCheckpointSaver) -> Any:
 
     The checkpointer is not optional here. Without durable checkpointing the human interrupt
     cannot work: the run would have to be held in memory for however long the analyst takes, and
-    any restart would lose it. This is what `api.py` and the eval harness use.
+    any restart would lose it. This is what `sentinel/chat/api.py` (the mediator `web/` actually
+    talks to) and the eval harness use, calling it in-process with `rca/checkpointer.py`'s durable
+    `checkpointer()` — never a fresh `MemorySaver()`.
     """
     return _builder().compile(checkpointer=checkpointer)
 
@@ -119,8 +121,11 @@ def build_graph(checkpointer: BaseCheckpointSaver) -> Any:
 def graph() -> Any:
     """Zero-argument factory for the LangGraph platform (`langgraph dev`, `langgraph.json`).
 
-    The platform supplies and manages persistence itself, so this compiles without a checkpointer
-    and the dev server injects one. Same nodes, same interrupt at `approval`. The `web/` chat UI
-    connects here.
+    Studio-debugging only. `langgraph dev`'s own persistence is ephemeral in-process storage
+    regardless of environment — confirmed by trial run, it does not honor `DATABASE_URI`/
+    `REDIS_URI` the way a real deployment would — so nothing here is what `web/` talks to in
+    normal use; that is `sentinel/chat/api.py`, which calls `build_graph(checkpointer())` directly
+    in Python. This factory exists so `langgraph dev` still has something to load for interactive
+    graph inspection.
     """
     return _builder().compile()

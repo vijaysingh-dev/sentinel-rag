@@ -14,6 +14,13 @@ incidents.jsonl is the ground truth this scenario produces: one line per state c
 flag, the fault variant, and a wall-clock timestamp. Session B5 in roadmap.sh correlates this
 against what the health-tree rollup and the RCA agent's own findings say happened.
 
+Capped at the last MAX_RUNS scenario-runs (a run being its incident_start/incident_end pair), not
+left to grow unbounded: this file is a live status feed for the platform panel, not an audit log
+that needs a real retention policy (deliberately deferred — see CLAUDE.md's Sentinel-db-by-default
+rule for where durable persistence for this eventually belongs, once it does). `_trim_and_write`
+re-reads the whole file, keeps only the newest MAX_RUNS runs, and writes it back — cheap at this
+size and simpler than an on-disk ring buffer.
+
 Triggering is manual-only (the chat UI's platform panel calls POST /trigger/{name}) — the random
 scheduler that used to fire scenarios on its own is disabled below. Automatic incidents made a
 question like "why did checkout just fail" ambiguous about whether it was cause or coincidence
@@ -42,6 +49,7 @@ from fastapi import FastAPI, HTTPException
 SCENARIOS_PATH = Path(__file__).parent / "scenarios.yaml"
 FLAGD_CONFIG_PATH = Path("/etc/flagd/demo.flagd.json")
 INCIDENT_LOG_PATH = Path("/app/data/incidents.jsonl")
+MAX_RUNS = 5  # scenario-runs kept, not lines — each run is an incident_start/incident_end pair
 
 _lock = threading.Lock()
 
@@ -66,6 +74,43 @@ def write_flags(data: dict[str, Any]) -> None:
     tmp.replace(FLAGD_CONFIG_PATH)
 
 
+def read_log() -> list[dict[str, Any]]:
+    if not INCIDENT_LOG_PATH.exists():
+        return []
+    lines = INCIDENT_LOG_PATH.read_text().strip().splitlines()
+    return [json.loads(line) for line in lines if line]
+
+
+def _pair_runs(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Walks oldest-to-newest pairing each incident_start with the incident_end that follows it
+    for the same scenario, so a run is never split apart. A dangling incident_start with no end
+    yet (the active run) is still returned as a one-record run.
+    """
+    runs: list[list[dict[str, Any]]] = []
+    open_runs: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        name = record["scenario"]
+        if record["event"] == "incident_start":
+            open_runs[name] = [record]
+            runs.append(open_runs[name])
+        elif name in open_runs:
+            open_runs[name].append(record)
+            del open_runs[name]
+    return runs
+
+
+def _trim_and_write(records: list[dict[str, Any]]) -> None:
+    """Keeps only the newest MAX_RUNS scenario-runs, oldest run dropped first — trimming drops
+    whole runs, not individual lines. A dangling incident_start with no end yet (the active run)
+    always counts as the newest run and is never dropped.
+    """
+    trimmed = _pair_runs(records)[-MAX_RUNS:]
+    lines = [json.dumps(r) for run in trimmed for r in run]
+    tmp = INCIDENT_LOG_PATH.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + ("\n" if lines else ""))
+    tmp.replace(INCIDENT_LOG_PATH)
+
+
 def log_event(event: str, scenario: dict[str, Any]) -> dict[str, Any]:
     record = {
         "ts": time.time(),
@@ -75,8 +120,7 @@ def log_event(event: str, scenario: dict[str, Any]) -> dict[str, Any]:
         "fault_variant": scenario["fault_variant"],
         "note": scenario.get("note", ""),
     }
-    with INCIDENT_LOG_PATH.open("a") as f:
-        f.write(json.dumps(record) + "\n")
+    _trim_and_write([*read_log(), record])
     print(f"incident-generator: {event} {scenario['name']} ({scenario['flag']}={scenario['fault_variant']})")
     return record
 
@@ -114,14 +158,35 @@ def reset_all_flags() -> None:
 class State:
     def __init__(self) -> None:
         self.active: dict[str, Any] | None = None
-        self.history: list[dict[str, Any]] = []
 
 
 state = State()
 
 
 def snapshot() -> dict[str, Any]:
-    return {"active": state.active, "recent": state.history[-10:]}
+    """`recent` reads from incidents.jsonl, not an in-memory list — the file is what survives a
+    restart (`MAX_RUNS`-bounded, see `_trim_and_write`), so this is what makes the platform
+    panel's "Recent incidents" section restart-safe instead of resetting to empty every time this
+    container restarts.
+
+    Each entry pairs a run's start and end record into one item with both timestamps, rather than
+    listing end events alone — so a finished run's exact timeframe is visible instead of just its
+    end time. The still-running run is excluded here (it's already surfaced via `active`) and only
+    joins `recent` once it ends.
+    """
+    runs = [run for run in _pair_runs(read_log()) if len(run) == 2]
+    recent = [
+        {
+            "scenario": run[0]["scenario"],
+            "flag": run[0]["flag"],
+            "fault_variant": run[0]["fault_variant"],
+            "note": run[0]["note"],
+            "start_ts": run[0]["ts"],
+            "end_ts": run[1]["ts"] if len(run) == 2 else None,
+        }
+        for run in runs
+    ]
+    return {"active": state.active, "recent": recent[-10:]}
 
 
 async def run_scenario(scenario: dict[str, Any]) -> None:
@@ -130,8 +195,7 @@ async def run_scenario(scenario: dict[str, Any]) -> None:
     state.active = record
     await asyncio.sleep(scenario["duration_s"])
     set_flag(scenario["flag"], scenario["reset_variant"])
-    record = log_event("incident_end", scenario)
-    state.history.append(record)
+    log_event("incident_end", scenario)
     state.active = None
 
 
@@ -167,7 +231,4 @@ async def trigger(name: str) -> dict[str, Any]:
 
 @app.get("/incidents")
 def incidents(limit: int = 50) -> dict[str, Any]:
-    if not INCIDENT_LOG_PATH.exists():
-        return {"incidents": []}
-    lines = INCIDENT_LOG_PATH.read_text().strip().splitlines()
-    return {"incidents": [json.loads(line) for line in lines[-limit:]]}
+    return {"incidents": read_log()[-limit:]}

@@ -107,8 +107,12 @@ class Settings(BaseSettings):
 
     # ---------------------------------------------------------------------------------- Google (llm)
     google_api_key: str = ""
-    google_chat_model: str = "gemini-2.5-pro"
-    google_cheap_model: str = "gemini-2.5-flash"
+    # Google retired Pro models from the free tier (2026-05); gemini-2.5-pro now 404s as
+    # GoogleModelNotFoundError on a free-tier key. gemini-3.8-flash (current GA flagship Flash
+    # model) and gemini-3.1-flash-lite (the genuinely lightweight tier) are both free-tier
+    # eligible and keep the chat/cheap capability split meaningful without needing a paid Pro tier.
+    google_chat_model: str = "gemini-3.8-flash"
+    google_cheap_model: str = "gemini-3.1-flash-lite"
 
     # ------------------------------------------------------------------------------- Cohere (rerank)
     cohere_api_key: str = ""
@@ -155,6 +159,15 @@ class Settings(BaseSettings):
     incident_log_url: str = "http://localhost:8092"  # app/incident-generator
     system_monitor_url: str = "http://localhost:8091"  # app/system-monitor
 
+    # --------------------------------------------------------------------------- chat mediator
+    # sentinel/chat — the router/session layer between web/ and {tool calls, retrieval, the RCA
+    # graph}. Ports 8091/8092 are system-monitor/incident-generator (above); 8093 is this service.
+    chat_api_port: int = 8093
+    chat_default_tenant_id: str = "default"  # no multi-tenant chat concept yet; one fixed tenant
+    chat_raw_window: int = 8  # raw turns kept verbatim in context; see chat/session.py:build_context
+    chat_resummarize_threshold: int = 20  # messages past the last summary point that trigger one
+    chat_router_confidence_floor: float = 0.55  # LLM-fallback classifications below this -> refuse
+
     # ------------------------------------------------------------------------- observability
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
@@ -171,6 +184,32 @@ class Settings(BaseSettings):
     def effective_log_level(self) -> str:
         """`log_level`, unless `debug` forces DEBUG. One place so every entry point agrees."""
         return "DEBUG" if self.debug else self.log_level
+
+    @property
+    def pg_schema(self) -> str:
+        """Postgres schema for Sentinel-owned tables (chat sessions/messages, LangGraph checkpoints).
+
+        `debug=True` (e.g. `make chat-server` on a laptop) resolves to a `test` schema instead of
+        `public`, same database and role. This is what keeps manual testing out of the real chat
+        history: without it, every session created while poking at the chat UI locally lands in the
+        exact tables the production UI's sidebar queries, because both share `pgvector_dsn` and
+        `chat_default_tenant_id`. A second schema is enough isolation here — a second database would
+        also work but means a second DSN, a second set of grants, and a second thing to keep in sync
+        with `config/init-sentinel-db.sql`, for no benefit `search_path` doesn't already give us.
+        """
+        return "test" if self.debug else "public"
+
+    @property
+    def redis_key_prefix_effective(self) -> str:
+        """`redis_key_prefix`, namespaced under `test` when `settings.debug` is set.
+
+        Same reasoning as `pg_schema`: Redis is shared, global infra (see CLAUDE.md), and without
+        this a locally-tested chat session's cache entries are indistinguishable from a real one's
+        under the existing `sentinel:` prefix. Namespacing the prefix, not switching DB index, keeps
+        this consistent with the DB-per-app / prefix-per-key belt-and-suspenders split already in
+        place for otel-demo's Valkey-cart traffic.
+        """
+        return f"{self.redis_key_prefix}:test" if self.debug else self.redis_key_prefix
 
     kill_switch: bool = False
     fixtures_path: str = ""  # set by evals to replay recorded tool output

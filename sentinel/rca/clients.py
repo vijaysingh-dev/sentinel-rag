@@ -1,10 +1,16 @@
-"""Clients for the platform services the RCA agent reads from.
+"""Clients for the platform services Sentinel reads from.
 
 These call the observability stack that ships with the OpenTelemetry Demo (`app/otel-demo/`):
-Prometheus for metrics, Jaeger for traces, flagd for the current feature-flag configuration, and
-`app/incident-generator` for the fault-scenario log. The endpoints come from `settings`
-(`prometheus_url`, `jaeger_url`, `flagd_config_path`, `incident_log_url`), so a different
-deployment is a config change, not a code change.
+Prometheus for metrics, Jaeger for traces, flagd for the current feature-flag configuration,
+`app/incident-generator` for the fault-scenario log, and `app/system-monitor` for the
+Docker-healthcheck rollup. The endpoints come from `settings` (`prometheus_url`, `jaeger_url`,
+`flagd_config_path`, `incident_log_url`, `system_monitor_url`), so a different deployment is a
+config change, not a code change.
+
+Both the RCA agent's tools (`rca/tools/`) and the chat mediator's `tool_call` route
+(`sentinel/chat/router.py`) share these clients rather than each keeping their own — one place
+that knows how to reach system-monitor/incident-generator, one breaker per service regardless of
+which caller tripped it.
 
 The shape every method keeps, and why it matters:
 
@@ -204,6 +210,42 @@ class DeployClient:
         return []
 
 
+class SystemMonitorClient:
+    """Read-only access to app/system-monitor's Docker-healthcheck rollup.
+
+    Used by the chat mediator's `tool_call` route ("what's the status of the system?") — a
+    cheap, deterministic answer that needs no LLM and no retrieval, just the rollup
+    system-monitor already computes. Read-only by design: triggering an incident is a distinct,
+    higher-stakes operation already exposed through `web/`'s platform panel, not something a
+    chat message should be able to do (see `sentinel/chat`'s design notes).
+    """
+
+    @guarded("system_monitor", timeout_s=8.0)
+    async def health(self) -> dict:
+        resp = await _http().get(f"{settings.system_monitor_url}/health")
+        resp.raise_for_status()
+        return resp.json()
+
+    @guarded("system_monitor", timeout_s=8.0)
+    async def tree(self) -> dict:
+        resp = await _http().get(f"{settings.system_monitor_url}/tree")
+        resp.raise_for_status()
+        return resp.json()
+
+    @guarded("system_monitor", timeout_s=8.0)
+    async def nodes(self) -> dict:
+        """Flat per-node map — `/health`'s `roots` is just the tree root(s), not every service."""
+        resp = await _http().get(f"{settings.system_monitor_url}/nodes")
+        resp.raise_for_status()
+        return resp.json()
+
+    @guarded("system_monitor", timeout_s=8.0)
+    async def node(self, name: str) -> dict:
+        resp = await _http().get(f"{settings.system_monitor_url}/nodes/{name}")
+        resp.raise_for_status()
+        return resp.json()
+
+
 class IncidentLogClient:
     """The incident-generator's event log — the scheduled fault scenarios it has run.
 
@@ -381,6 +423,11 @@ def deploy_client() -> DeployClient:
 @lru_cache
 def incident_log_client() -> IncidentLogClient:
     return IncidentLogClient()
+
+
+@lru_cache
+def system_monitor_client() -> SystemMonitorClient:
+    return SystemMonitorClient()
 
 
 @lru_cache

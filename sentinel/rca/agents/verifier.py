@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from sentinel.core.observability import log
 from sentinel.core.registry import get_provider
+from sentinel.core.resilience import with_retry
 from sentinel.rca.prompts import load_prompt
 from sentinel.rca.state import SentinelState
 
@@ -84,7 +85,9 @@ async def verifier_node(state: SentinelState) -> Command:
     )
 
     try:
-        result: VerificationResult = await _verifier().ainvoke(prompt)
+        result: VerificationResult = await with_retry(
+            lambda: _verifier().ainvoke(prompt), operation="verifier"
+        )
     except Exception as exc:
         # A failed verification must not block the run, but it must be visible: the draft proceeds
         # marked degraded rather than silently unreviewed.

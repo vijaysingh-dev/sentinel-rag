@@ -78,7 +78,6 @@ demo-status:  ## Show the Astroshop health rollup and the recent incident log
 	@echo "== recent incidents ==" && curl -sf http://localhost:8092/incidents?limit=5 | python3 -m json.tool || echo "incident-generator not reachable"
 
 corpus:  ## (Re)generate the knowledge corpus and parser ground truth from scripts/corpus/
-	uv sync --extra corpus
 	uv run python scripts/corpus/build_all.py --clean
 
 ingest:  ## Ingest ./knowledge into the configured vector store
@@ -111,11 +110,14 @@ bench-chunking:  ## Chunking strategy sweep
 bench-retrieval:  ## Retrieval configuration sweep
 	uv run python benchmarks/retrieval_sweep.py
 
-chat-server:  ## Serve the RCA graph over the LangGraph protocol for the web/ chat UI (:2024)
-	uv sync --extra chat
+chat-api:  ## Serve sentinel/chat's HTTP+SSE API for web/ (:8093) — the production chat backend
+	uv run uvicorn sentinel.chat.api:app --port 8093 --reload
+
+chat-server:  ## Studio-debugging only: serve the RCA graph over the LangGraph protocol (:2024).
+               ## web/ no longer talks to this in normal use — see `make chat-api`.
 	uv run langgraph dev --config langgraph.json --port 2024 --no-browser
 
-chat-ui:  ## Run the Agent Chat UI (needs `make chat-server` in another terminal, and pnpm)
+chat-ui:  ## Run the Agent Chat UI (needs `make chat-api` in another terminal, and pnpm)
 	@test -f web/.env || cp web/.env.sentinel.example web/.env
 	cd web && pnpm install && pnpm dev
 

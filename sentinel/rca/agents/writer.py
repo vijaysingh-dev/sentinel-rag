@@ -20,6 +20,7 @@ from langgraph.types import Command, interrupt
 
 from sentinel.core.observability import log
 from sentinel.core.registry import get_provider
+from sentinel.core.resilience import with_retry
 from sentinel.rca.prompts import load_prompt
 from sentinel.rca.state import RCADraft, SentinelState
 
@@ -66,7 +67,7 @@ async def writer_node(state: SentinelState) -> Command:
         )
 
     try:
-        draft: RCADraft = await _writer().ainvoke(prompt)
+        draft: RCADraft = await with_retry(lambda: _writer().ainvoke(prompt), operation="writer")
     except Exception as exc:
         log.error("drafting_failed", anomaly=state["anomaly_id"], error=type(exc).__name__)
         return Command(

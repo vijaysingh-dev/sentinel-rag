@@ -1,320 +1,327 @@
+"use client";
+
 import React, {
   createContext,
   useContext,
   ReactNode,
   useState,
-  useEffect,
+  useCallback,
+  useRef,
 } from "react";
-import { useStream } from "@langchain/langgraph-sdk/react";
-import { type Message } from "@langchain/langgraph-sdk";
-import {
-  uiMessageReducer,
-  isUIMessage,
-  isRemoveUIMessage,
-  type UIMessage,
-  type RemoveUIMessage,
-} from "@langchain/langgraph-sdk/react-ui";
 import { useQueryState } from "nuqs";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { LangGraphLogoSVG } from "@/components/icons/langgraph";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { ArrowRight } from "lucide-react";
-import { PasswordInput } from "@/components/ui/password-input";
-import { getApiKey } from "@/lib/api-key";
-import { useThreads } from "./Thread";
 import { toast } from "sonner";
+import { streamChatEvents } from "@/lib/sse";
+import { ApprovalPayload, ChatMessage, Role, ThinkingStep } from "@/lib/chat-types";
+import { useThreads } from "./Thread";
 
-export type StateType = { messages: Message[]; ui?: UIMessage[] };
+// What web/ actually needs from a chat turn — no LangGraph Message/Checkpoint types, no
+// branches, no tool-call blocks. `route`/`meta` are enough for the UI to render a citation list
+// or an approval panel differently per route. `steps` is the RCA graph's per-node progress for
+// this turn (empty for RAG/tool_call turns, which don't stream intermediate nodes) — kept on the
+// message so it stays visible (collapsed) in history, the same way ChatGPT keeps a past turn's
+// reasoning trace inspectable after the fact.
+export interface DisplayMessage {
+  id: string;
+  turn_role: "user" | "assistant";
+  content: string;
+  route?: ChatMessage["route"];
+  meta?: ChatMessage["meta"];
+  steps?: ThinkingStep[];
+}
 
-const useTypedStream = useStream<
-  StateType,
-  {
-    UpdateType: {
-      messages?: Message[] | Message | string;
-      ui?: (UIMessage | RemoveUIMessage)[] | UIMessage | RemoveUIMessage;
-      context?: Record<string, unknown>;
-    };
-    CustomEventType: UIMessage | RemoveUIMessage;
-  }
->;
+interface StreamContextType {
+  sessionId: string | null;
+  role: Role;
+  setRole: (role: Role) => void;
+  messages: DisplayMessage[];
+  isLoading: boolean;
+  pendingApproval: ApprovalPayload | null;
+  pendingQuestion: string | null;
+  sendMessage: (text: string) => Promise<void>;
+  editMessage: (id: string, text: string) => Promise<void>;
+  retryMessage: (assistantId: string) => Promise<void>;
+  stop: () => void;
+  resumeApproval: (
+    action: "approve" | "edit" | "reject",
+    opts?: { reason?: string; editedDraft?: ApprovalPayload["draft"] },
+  ) => Promise<void>;
+  newSession: () => void;
+  loadSession: (sessionId: string) => Promise<void>;
+}
 
-type StreamContextType = ReturnType<typeof useTypedStream>;
 const StreamContext = createContext<StreamContextType | undefined>(undefined);
 
-async function sleep(ms = 4000) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const DEFAULT_ROLE: Role = "sre";
 
-async function checkGraphStatus(
-  apiUrl: string,
-  apiKey: string | null,
-  authScheme?: string,
-): Promise<boolean> {
-  try {
-    const headers = new Headers();
-    if (apiKey) headers.set("X-Api-Key", apiKey);
-    if (authScheme) headers.set("X-Auth-Scheme", authScheme);
+export const StreamProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [sessionId, setSessionId] = useQueryState("threadId");
+  const [role, setRole] = useState<Role>(DEFAULT_ROLE);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<ApprovalPayload | null>(null);
+  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
+  const { getSessions, setSessions } = useThreads();
 
-    const res = await fetch(`${apiUrl}/info`, {
-      headers,
-    });
+  const abortRef = useRef<AbortController | null>(null);
+  const reviewerName = useRef<string>(role);
 
-    return res.ok;
-  } catch (e) {
-    console.error(e);
-    return false;
-  }
-}
+  const refreshSessions = useCallback(() => {
+    getSessions().then(setSessions).catch(console.error);
+  }, [getSessions, setSessions]);
 
-const StreamSession = ({
-  children,
-  apiKey,
-  apiUrl,
-  assistantId,
-  authScheme,
-}: {
-  children: ReactNode;
-  apiKey: string | null;
-  apiUrl: string;
-  assistantId: string;
-  authScheme?: string;
-}) => {
-  const [threadId, setThreadId] = useQueryState("threadId");
-  const { getThreads, setThreads } = useThreads();
-  const streamValue = useTypedStream({
-    apiUrl,
-    apiKey: apiKey ?? undefined,
-    assistantId,
-    ...(authScheme && {
-      defaultHeaders: {
-        "X-Auth-Scheme": authScheme,
-      },
-    }),
-    threadId: threadId ?? null,
-    fetchStateHistory: true,
-    onCustomEvent: (event, options) => {
-      if (isUIMessage(event) || isRemoveUIMessage(event)) {
-        options.mutate((prev) => {
-          const ui = uiMessageReducer(prev.ui ?? [], event);
-          return { ...prev, ui };
-        });
+  const newSession = useCallback(() => {
+    abortRef.current?.abort();
+    setSessionId(null);
+    setMessages([]);
+    setPendingApproval(null);
+    setPendingQuestion(null);
+    setIsLoading(false);
+  }, [setSessionId]);
+
+  const loadSession = useCallback(
+    async (id: string) => {
+      abortRef.current?.abort();
+      setPendingApproval(null);
+      setPendingQuestion(null);
+      const res = await fetch(`/api/chat/sessions/${id}/messages`);
+      if (!res.ok) {
+        toast.error("Could not load that conversation.");
+        return;
       }
+      const rows: ChatMessage[] = await res.json();
+      setSessionId(id);
+      setMessages(
+        rows.map((r) => ({
+          id: `${id}-${r.seq}`,
+          turn_role: r.turn_role,
+          content: r.content,
+          route: r.route,
+          meta: r.meta,
+        })),
+      );
     },
-    onThreadId: (id) => {
-      setThreadId(id);
-      // Refetch threads list when thread ID changes.
-      // Wait for some seconds before fetching so we're able to get the new thread that was created.
-      sleep().then(() => getThreads().then(setThreads).catch(console.error));
-    },
-  });
-
-  useEffect(() => {
-    checkGraphStatus(apiUrl, apiKey, authScheme).then((ok) => {
-      if (!ok) {
-        toast.error("Failed to connect to LangGraph server", {
-          description: () => (
-            <p>
-              Please ensure your graph is running at <code>{apiUrl}</code> and
-              your API key is correctly set (if connecting to a deployed graph).
-            </p>
-          ),
-          duration: 10000,
-          richColors: true,
-          closeButton: true,
-        });
-      }
-    });
-  }, [apiKey, apiUrl, authScheme]);
-
-  return (
-    <StreamContext.Provider value={streamValue}>
-      {children}
-    </StreamContext.Provider>
-  );
-};
-
-// Default values for the form
-const DEFAULT_API_URL = "http://localhost:2024";
-const DEFAULT_ASSISTANT_ID = "agent";
-const AGENT_BUILDER_AUTH_SCHEME = "langsmith-api-key";
-
-export const StreamProvider: React.FC<{ children: ReactNode }> = ({
-  children,
-}) => {
-  // Get environment variables
-  const envApiUrl: string | undefined = process.env.NEXT_PUBLIC_API_URL;
-  const envAssistantId: string | undefined =
-    process.env.NEXT_PUBLIC_ASSISTANT_ID;
-  const envAuthScheme: string | undefined = process.env.NEXT_PUBLIC_AUTH_SCHEME;
-
-  // Use URL params with env var fallbacks
-  const [apiUrl, setApiUrl] = useQueryState("apiUrl", {
-    defaultValue: envApiUrl || "",
-  });
-  const [assistantId, setAssistantId] = useQueryState("assistantId", {
-    defaultValue: envAssistantId || "",
-  });
-  const [authScheme, setAuthScheme] = useQueryState("authScheme", {
-    defaultValue: envAuthScheme || "",
-  });
-  const [isAgentBuilder, setIsAgentBuilder] = useState(
-    () =>
-      (authScheme || envAuthScheme || "").toLowerCase() ===
-      AGENT_BUILDER_AUTH_SCHEME,
+    [setSessionId],
   );
 
-  // For API key, use localStorage with env var fallback
-  const [apiKey, _setApiKey] = useState(() => {
-    const storedKey = getApiKey();
-    return storedKey || "";
-  });
+  // Shared by `sendMessage` (appends onto the current view) and `editMessage` (first drops
+  // everything from the edited turn onward, then re-runs this). Streaming/persistence is
+  // identical either way — the backend just sees another turn appended to the same session, since
+  // truncating server-side history is out of scope for an edit-and-retry that only needs the
+  // local view to reflect the edit going forward.
+  const runTurn = useCallback(
+    async (text: string, seedMessages: (prev: DisplayMessage[]) => DisplayMessage[]) => {
+      const userMsg: DisplayMessage = {
+        id: `local-${Date.now()}`,
+        turn_role: "user",
+        content: text,
+      };
+      setMessages((prev) => [...seedMessages(prev), userMsg]);
+      setIsLoading(true);
+      setPendingApproval(null);
+      setPendingQuestion(null);
+      reviewerName.current = role;
 
-  const setApiKey = (key: string) => {
-    window.localStorage.setItem("lg:chat:apiKey", key);
-    _setApiKey(key);
+      const assistantId = `local-${Date.now()}-assistant`;
+      let assistantText = "";
+      let assistantRoute: ChatMessage["route"] | undefined;
+      let assistantMeta: ChatMessage["meta"] = {};
+      const assistantSteps: ThinkingStep[] = [];
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      // Placeholder the assistant is streamed into — appended once, then mutated in place as
+      // tokens arrive, rather than one setState per character.
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantId, turn_role: "assistant", content: "" },
+      ]);
+
+      try {
+        for await (const event of streamChatEvents(
+          "/api/chat/message",
+          { session_id: sessionId, role, message: text },
+          controller.signal,
+        )) {
+          switch (event.type) {
+            case "session":
+              setSessionId(event.session_id);
+              break;
+            case "route":
+              assistantRoute = event.route;
+              break;
+            case "step":
+              assistantSteps.push({ node: event.node, summary: event.summary });
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, steps: [...assistantSteps] } : m)),
+              );
+              break;
+            case "token":
+              assistantText += event.text;
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, content: assistantText } : m)),
+              );
+              break;
+            case "refs":
+              assistantMeta = { ...assistantMeta, refs: event.refs };
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, meta: assistantMeta } : m)),
+              );
+              break;
+            case "awaiting_input":
+              setPendingQuestion(event.question);
+              assistantText = event.question;
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, content: assistantText } : m)),
+              );
+              break;
+            case "awaiting_approval": {
+              const { type: _t, ...payload } = event;
+              setPendingApproval(payload);
+              assistantText = `Draft ready for review: ${payload.draft.summary}`;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: assistantText, route: "rca", meta: { ...assistantMeta } }
+                    : m,
+                ),
+              );
+              break;
+            }
+            case "error":
+              toast.error(event.message, { richColors: true, closeButton: true });
+              break;
+            case "done":
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, route: assistantRoute } : m)),
+              );
+              break;
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") {
+          toast.error("Failed to reach sentinel-chat.", { richColors: true, closeButton: true });
+        }
+      } finally {
+        // A user-initiated stop (see `stop` below) leaves whatever content/steps had already
+        // streamed in place rather than discarding them — the investigation-so-far is still
+        // useful context, it just didn't run to completion.
+        if (abortRef.current === controller && abortRef.current.signal.aborted) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId && m.content === ""
+                ? { ...m, content: "_Stopped._" }
+                : m,
+            ),
+          );
+        }
+        setIsLoading(false);
+        refreshSessions();
+      }
+    },
+    [sessionId, role, setSessionId, refreshSessions],
+  );
+
+  const sendMessage = useCallback(
+    (text: string) => runTurn(text, (prev) => prev),
+    [runTurn],
+  );
+
+  // Edits a past user turn in place and re-runs it: everything from that turn onward is dropped
+  // from the local view, then the edited text is sent as a fresh turn. The dropped turns are
+  // still in `sentinel`'s session history (append-only, see CLAUDE.md's correctness invariants —
+  // this never truncates it), so reopening the session from Conversations later shows the
+  // original, un-edited trajectory; only the live view moves on from the edit.
+  const editMessage = useCallback(
+    (id: string, text: string) =>
+      runTurn(text, (prev) => {
+        const idx = prev.findIndex((m) => m.id === id);
+        return idx === -1 ? prev : prev.slice(0, idx);
+      }),
+    [runTurn],
+  );
+
+  // Re-runs an assistant turn: finds the user message right before it and replays it through the
+  // same drop-and-resend path `editMessage` uses, just with the original text instead of an edit.
+  const retryMessage = useCallback(
+    (assistantId: string) => {
+      const assistantIdx = messages.findIndex((m) => m.id === assistantId);
+      if (assistantIdx === -1) return Promise.resolve();
+      const userMsg = messages
+        .slice(0, assistantIdx)
+        .reverse()
+        .find((m) => m.turn_role === "user");
+      if (!userMsg) return Promise.resolve();
+      return editMessage(userMsg.id, userMsg.content);
+    },
+    [messages, editMessage],
+  );
+
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  const resumeApproval = useCallback(
+    async (
+      action: "approve" | "edit" | "reject",
+      opts?: { reason?: string; editedDraft?: ApprovalPayload["draft"] },
+    ) => {
+      if (!pendingApproval || !sessionId) return;
+      setIsLoading(true);
+      try {
+        const res = await fetch("/api/chat/resume", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            thread_id: pendingApproval.thread_id,
+            action,
+            reviewer: reviewerName.current,
+            reason: opts?.reason,
+            edited_draft: opts?.editedDraft,
+          }),
+        });
+        const data = await res.json();
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `resume-${Date.now()}`,
+            turn_role: "assistant",
+            content: `Investigation ${data.outcome}.`,
+            route: "rca",
+          },
+        ]);
+        setPendingApproval(null);
+      } catch {
+        toast.error("Failed to submit the review decision.", { richColors: true, closeButton: true });
+      } finally {
+        setIsLoading(false);
+        refreshSessions();
+      }
+    },
+    [pendingApproval, sessionId, refreshSessions],
+  );
+
+  const value: StreamContextType = {
+    sessionId,
+    role,
+    setRole,
+    messages,
+    isLoading,
+    pendingApproval,
+    pendingQuestion,
+    sendMessage,
+    editMessage,
+    retryMessage,
+    stop,
+    resumeApproval,
+    newSession,
+    loadSession,
   };
 
-  // Determine final values to use, prioritizing URL params then env vars
-  const finalApiUrl = apiUrl || envApiUrl;
-  const finalAssistantId = assistantId || envAssistantId;
-  const finalAuthScheme = authScheme || envAuthScheme || "";
-
-  // Show the form if we: don't have an API URL, or don't have an assistant ID
-  if (!finalApiUrl || !finalAssistantId) {
-    return (
-      <div className="flex min-h-screen w-full items-center justify-center p-4">
-        <div className="animate-in fade-in-0 zoom-in-95 bg-background flex max-w-3xl flex-col rounded-lg border shadow-lg">
-          <div className="mt-14 flex flex-col gap-2 border-b p-6">
-            <div className="flex flex-col items-start gap-2">
-              <LangGraphLogoSVG className="h-7" />
-              <h1 className="text-xl font-semibold tracking-tight">
-                Agent Chat
-              </h1>
-            </div>
-            <p className="text-muted-foreground">
-              Welcome to Agent Chat! Before you get started, you need to enter
-              the URL of the deployment and the assistant / graph ID.
-            </p>
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-
-              const form = e.target as HTMLFormElement;
-              const formData = new FormData(form);
-              const apiUrl = formData.get("apiUrl") as string;
-              const assistantId = formData.get("assistantId") as string;
-              const apiKey = formData.get("apiKey") as string;
-
-              setApiUrl(apiUrl);
-              setApiKey(apiKey);
-              setAssistantId(assistantId);
-              setAuthScheme(isAgentBuilder ? AGENT_BUILDER_AUTH_SCHEME : "");
-
-              form.reset();
-            }}
-            className="bg-muted/50 flex flex-col gap-6 p-6"
-          >
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="apiUrl">
-                Deployment URL<span className="text-rose-500">*</span>
-              </Label>
-              <p className="text-muted-foreground text-sm">
-                This is the URL of your LangGraph deployment. Can be a local, or
-                production deployment.
-              </p>
-              <Input
-                id="apiUrl"
-                name="apiUrl"
-                className="bg-background"
-                defaultValue={apiUrl || DEFAULT_API_URL}
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="assistantId">
-                Assistant / Graph ID<span className="text-rose-500">*</span>
-              </Label>
-              <p className="text-muted-foreground text-sm">
-                This is the ID of the graph (can be the graph name), or
-                assistant to fetch threads from, and invoke when actions are
-                taken.
-              </p>
-              <Input
-                id="assistantId"
-                name="assistantId"
-                className="bg-background"
-                defaultValue={assistantId || DEFAULT_ASSISTANT_ID}
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="apiKey">LangSmith API Key</Label>
-              <p className="text-muted-foreground text-sm">
-                This is <strong>NOT</strong> required if using a local LangGraph
-                server. This value is stored in your browser's local storage and
-                is only used to authenticate requests sent to your LangGraph
-                server.
-              </p>
-              <PasswordInput
-                id="apiKey"
-                name="apiKey"
-                defaultValue={apiKey ?? ""}
-                className="bg-background"
-                placeholder="lsv2_pt_..."
-              />
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="agentBuilderEnabled">
-                    Built with Agent Builder
-                  </Label>
-                  <p className="text-muted-foreground text-sm">
-                    Enable this for Agent Builder deployments.
-                  </p>
-                </div>
-                <Switch
-                  id="agentBuilderEnabled"
-                  checked={isAgentBuilder}
-                  onCheckedChange={setIsAgentBuilder}
-                />
-              </div>
-            </div>
-
-            <div className="mt-2 flex justify-end">
-              <Button
-                type="submit"
-                size="lg"
-              >
-                Continue
-                <ArrowRight className="size-5" />
-              </Button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <StreamSession
-      apiKey={apiKey}
-      apiUrl={finalApiUrl}
-      assistantId={finalAssistantId}
-      authScheme={finalAuthScheme || undefined}
-    >
-      {children}
-    </StreamSession>
-  );
+  return <StreamContext.Provider value={value}>{children}</StreamContext.Provider>;
 };
 
-// Create a custom hook to use the context
 export const useStreamContext = (): StreamContextType => {
   const context = useContext(StreamContext);
   if (context === undefined) {

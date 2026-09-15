@@ -1,229 +1,156 @@
-import { parsePartialJson } from "@langchain/core/output_parsers";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, LoaderCircle, Copy, Check, RotateCcw } from "lucide-react";
+import { DisplayMessage } from "@/providers/Stream";
 import { useStreamContext } from "@/providers/Stream";
-import { AIMessage, Checkpoint, Message } from "@langchain/langgraph-sdk";
-import { useStream } from "@langchain/langgraph-sdk/react";
-import { getContentString } from "../utils";
-import { BranchSwitcher, CommandBar } from "./shared";
 import { MarkdownText } from "../markdown-text";
-import { LoadExternalComponent } from "@langchain/langgraph-sdk/react-ui";
+import { useCopyToClipboard } from "../use-copy-to-clipboard";
 import { cn } from "@/lib/utils";
-import { ToolCalls, ToolResult } from "./tool-calls";
-import { MessageContentComplex } from "@langchain/core/messages";
-import { Fragment } from "react/jsx-runtime";
-import { isAgentInboxInterruptSchema } from "@/lib/agent-inbox-interrupt";
-import { ThreadView } from "../agent-inbox";
-import { useQueryState, parseAsBoolean } from "nuqs";
-import { GenericInterruptView } from "./generic-interrupt";
-import { useArtifact } from "../artifact";
+import { Route } from "@/lib/chat-types";
+import { ThinkingStep } from "@/lib/chat-types";
 
-function CustomComponent({
-  message,
-  thread,
-}: {
-  message: Message;
-  thread: ReturnType<typeof useStreamContext>;
-}) {
-  const artifact = useArtifact();
-  const { values } = useStreamContext();
-  const customComponents = values.ui?.filter(
-    (ui) => ui.metadata?.message_id === message.id,
-  );
+const ROUTE_LABELS: Record<Route, string> = {
+  tool_call: "Status check",
+  rag: "Documentation",
+  rca: "Investigation",
+  refuse: "Out of scope",
+};
 
-  if (!customComponents?.length) return null;
+const ROUTE_STYLES: Record<Route, string> = {
+  tool_call: "bg-blue-50 text-blue-700",
+  rag: "bg-emerald-50 text-emerald-700",
+  rca: "bg-amber-50 text-amber-700",
+  refuse: "bg-gray-100 text-gray-500",
+};
+
+function RouteBadge({ route }: { route: Route }) {
   return (
-    <Fragment key={message.id}>
-      {customComponents.map((customComponent) => (
-        <LoadExternalComponent
-          key={customComponent.id}
-          stream={thread as unknown as ReturnType<typeof useStream>}
-          message={customComponent}
-          meta={{ ui: customComponent, artifact }}
-        />
+    <span
+      className={cn(
+        "mb-1 inline-block w-fit rounded-full px-2 py-0.5 text-xs font-medium",
+        ROUTE_STYLES[route],
+      )}
+    >
+      {ROUTE_LABELS[route]}
+    </span>
+  );
+}
+
+function Refs({ refs }: { refs: string[] }) {
+  if (!refs.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {refs.map((ref) => (
+        <span
+          key={ref}
+          className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-500"
+          title={ref}
+        >
+          {ref.split("::")[0]}
+        </span>
       ))}
-    </Fragment>
+    </div>
   );
 }
 
-function parseAnthropicStreamedToolCalls(
-  content: MessageContentComplex[],
-): AIMessage["tool_calls"] {
-  const toolCallContents = content.filter((c) => c.type === "tool_use" && c.id);
-
-  return toolCallContents.map((tc) => {
-    const toolCall = tc as Record<string, any>;
-    let json: Record<string, any> = {};
-    if (toolCall?.input) {
-      try {
-        json = parsePartialJson(toolCall.input) ?? {};
-      } catch {
-        // Pass
-      }
-    }
-    return {
-      name: toolCall.name ?? "",
-      id: toolCall.id ?? "",
-      args: json,
-      type: "tool_call",
-    };
-  });
-}
-
-interface InterruptProps {
-  interrupt?: unknown;
-  isLastMessage: boolean;
-  hasNoAIOrToolMessages: boolean;
-}
-
-function Interrupt({
-  interrupt,
-  isLastMessage,
-  hasNoAIOrToolMessages,
-}: InterruptProps) {
-  const fallbackValue = Array.isArray(interrupt)
-    ? (interrupt as Record<string, any>[])
-    : (((interrupt as { value?: unknown } | undefined)?.value ??
-        interrupt) as Record<string, any>);
-
+// Collapsed by default once the answer has landed (content present), expanded automatically
+// while still investigating (no content yet) — the same "auto-open while working, collapse once
+// answered" behavior as ChatGPT's reasoning drawer, so the user isn't stuck expanding it mid-run
+// to see why the wait is long.
+function ThinkingSteps({ steps, live }: { steps: ThinkingStep[]; live: boolean }) {
+  const [open, setOpen] = useState(live);
+  const userToggled = useRef(false);
+  useEffect(() => {
+    if (!live && !userToggled.current) setOpen(false);
+  }, [live]);
+  if (!steps.length) return null;
   return (
-    <>
-      {isAgentInboxInterruptSchema(interrupt) &&
-        (isLastMessage || hasNoAIOrToolMessages) && (
-          <ThreadView interrupt={interrupt} />
-        )}
-      {interrupt &&
-      !isAgentInboxInterruptSchema(interrupt) &&
-      (isLastMessage || hasNoAIOrToolMessages) ? (
-        <GenericInterruptView interrupt={fallbackValue} />
-      ) : null}
-    </>
+    <div className="mb-1 w-full max-w-xl rounded-lg border bg-gray-50/80 text-sm">
+      <button
+        type="button"
+        onClick={() => {
+          userToggled.current = true;
+          setOpen((p) => !p);
+        }}
+        className="flex w-full cursor-pointer items-center gap-1.5 px-2.5 py-1.5 text-gray-600"
+      >
+        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        {live && <LoaderCircle className="size-3.5 animate-spin text-gray-400" />}
+        <span className="font-medium">
+          {live ? "Investigating" : `Investigated in ${steps.length} step${steps.length === 1 ? "" : "s"}`}
+        </span>
+      </button>
+      {/* max-h caps growth at ~10 step rows before scrolling kicks in; below that the list's
+          height simply follows however many steps have streamed in so far. */}
+      {open && (
+        <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto border-t px-2.5 py-2">
+          {steps.map((step, i) => (
+            <li
+              key={`${step.node}-${i}`}
+              className="flex items-baseline gap-2 text-xs text-gray-500"
+            >
+              <span className="font-mono text-gray-400">{step.node}</span>
+              <span>{step.summary}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
 export function AssistantMessage({
   message,
-  isLoading,
-  handleRegenerate,
+  isLatest,
 }: {
-  message: Message | undefined;
-  isLoading: boolean;
-  handleRegenerate: (parentCheckpoint: Checkpoint | null | undefined) => void;
+  message: DisplayMessage;
+  isLatest: boolean;
 }) {
-  const content = message?.content ?? [];
-  const contentString = getContentString(content);
-  const [hideToolCalls] = useQueryState(
-    "hideToolCalls",
-    parseAsBoolean.withDefault(false),
-  );
-
-  const thread = useStreamContext();
-  const isLastMessage =
-    thread.messages[thread.messages.length - 1].id === message?.id;
-  const hasNoAIOrToolMessages = !thread.messages.find(
-    (m) => m.type === "ai" || m.type === "tool",
-  );
-  const meta = message ? thread.getMessagesMetadata(message) : undefined;
-  const threadInterrupt = thread.interrupt;
-
-  const parentCheckpoint = meta?.firstSeenState?.parent_checkpoint;
-  const anthropicStreamedToolCalls = Array.isArray(content)
-    ? parseAnthropicStreamedToolCalls(content)
-    : undefined;
-
-  const hasToolCalls =
-    message &&
-    "tool_calls" in message &&
-    message.tool_calls &&
-    message.tool_calls.length > 0;
-  const toolCallsHaveContents =
-    hasToolCalls &&
-    message.tool_calls?.some(
-      (tc) => tc.args && Object.keys(tc.args).length > 0,
-    );
-  const hasAnthropicToolCalls = !!anthropicStreamedToolCalls?.length;
-  const isToolResult = message?.type === "tool";
-
-  if (isToolResult && hideToolCalls) {
-    return null;
-  }
-
+  const { isLoading, retryMessage } = useStreamContext();
+  const { copied, copy } = useCopyToClipboard();
+  const refs = message.meta?.refs as string[] | undefined;
+  const steps = message.steps ?? [];
+  const live = steps.length > 0 && message.content === "";
   return (
-    <div className="group mr-auto flex w-full items-start gap-2">
-      <div className="flex w-full flex-col gap-2">
-        {isToolResult ? (
-          <>
-            <ToolResult message={message} />
-            <Interrupt
-              interrupt={threadInterrupt}
-              isLastMessage={isLastMessage}
-              hasNoAIOrToolMessages={hasNoAIOrToolMessages}
-            />
-          </>
-        ) : (
-          <>
-            {contentString.length > 0 && (
-              <div className="py-1">
-                <MarkdownText>{contentString}</MarkdownText>
-              </div>
-            )}
-
-            {!hideToolCalls && (
-              <>
-                {(hasToolCalls && toolCallsHaveContents && (
-                  <ToolCalls toolCalls={message.tool_calls} />
-                )) ||
-                  (hasAnthropicToolCalls && (
-                    <ToolCalls toolCalls={anthropicStreamedToolCalls} />
-                  )) ||
-                  (hasToolCalls && (
-                    <ToolCalls toolCalls={message.tool_calls} />
-                  ))}
-              </>
-            )}
-
-            {message && (
-              <CustomComponent
-                message={message}
-                thread={thread}
-              />
-            )}
-            <Interrupt
-              interrupt={threadInterrupt}
-              isLastMessage={isLastMessage}
-              hasNoAIOrToolMessages={hasNoAIOrToolMessages}
-            />
-            <div
-              className={cn(
-                "mr-auto flex items-center gap-2 transition-opacity",
-                "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
-              )}
-            >
-              <BranchSwitcher
-                branch={meta?.branch}
-                branchOptions={meta?.branchOptions}
-                onSelect={(branch) => thread.setBranch(branch)}
-                isLoading={isLoading}
-              />
-              <CommandBar
-                content={contentString}
-                isLoading={isLoading}
-                isAiMessage={true}
-                handleRegenerate={() => handleRegenerate(parentCheckpoint)}
-              />
-            </div>
-          </>
-        )}
+    <div className="group flex flex-col gap-1">
+      {message.route && <RouteBadge route={message.route} />}
+      <ThinkingSteps steps={steps} live={live} />
+      <div className="py-1">
+        <MarkdownText>{message.content}</MarkdownText>
       </div>
+      {refs && <Refs refs={refs} />}
+      {!live && message.content && (
+        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            type="button"
+            aria-label="Copy response"
+            onClick={() => copy(message.content)}
+            className="text-muted-foreground hover:text-foreground p-1"
+          >
+            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          </button>
+          {isLatest && !isLoading && (
+            <button
+              type="button"
+              aria-label="Retry response"
+              onClick={() => retryMessage(message.id)}
+              className="text-muted-foreground hover:text-foreground p-1"
+            >
+              <RotateCcw className="size-3.5" />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 export function AssistantMessageLoading() {
   return (
-    <div className="mr-auto flex items-start gap-2">
-      <div className="bg-muted flex h-8 items-center gap-1 rounded-2xl px-4 py-2">
-        <div className="bg-foreground/50 h-1.5 w-1.5 animate-[pulse_1.5s_ease-in-out_infinite] rounded-full"></div>
-        <div className="bg-foreground/50 h-1.5 w-1.5 animate-[pulse_1.5s_ease-in-out_0.5s_infinite] rounded-full"></div>
-        <div className="bg-foreground/50 h-1.5 w-1.5 animate-[pulse_1.5s_ease-in-out_1s_infinite] rounded-full"></div>
+    <div className="flex items-center gap-2 py-1">
+      <div className="flex gap-1">
+        <span className="size-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]" />
+        <span className="size-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]" />
+        <span className="size-1.5 animate-bounce rounded-full bg-gray-400" />
       </div>
     </div>
   );

@@ -77,10 +77,15 @@ dev = [
     "mypy>=1.13",
 ]
 
-# The LangGraph dev server, for driving the graph from the web/ chat UI (`make chat-server`).
-# Separate extra because it pulls a FastAPI/uvicorn dev stack that nothing else needs.
+# The chat mediator's own API (`make chat-api`, sentinel/chat/api.py) plus the LangGraph dev
+# server kept around for Studio debugging (`make chat-server`). Separate extra because both pull
+# a FastAPI/uvicorn stack nothing else needs. fastapi/uvicorn are listed explicitly rather than
+# relied on as langgraph-cli transitive deps — sentinel/chat/api.py is Sentinel's own service, not
+# LangGraph's, and should not break if langgraph-cli's own dependency set ever changes.
 chat = [
     "langgraph-cli[inmem]>=0.1.55",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
 ]
 
 # Corpus generation: writes the knowledge corpus (PDF/DOCX/PPTX/XLSX/MD) from the otel-demo's

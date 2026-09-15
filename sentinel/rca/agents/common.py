@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from sentinel.core.config import settings
 from sentinel.core.observability import estimate_cost, log, trace_config
-from sentinel.rca.resilience import with_node_guard
+from sentinel.rca.guard import with_node_guard
 from sentinel.rca.state import Evidence, SentinelState
 
 # Prefixes of citation handles the tools emit. A ref outside this set never came from a tool.

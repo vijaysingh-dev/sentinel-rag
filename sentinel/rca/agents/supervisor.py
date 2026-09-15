@@ -21,8 +21,8 @@ from pydantic import BaseModel, Field
 
 from sentinel.core.observability import log
 from sentinel.core.registry import get_provider
+from sentinel.rca.guard import budget_exceeded, structured_with_repair
 from sentinel.rca.prompts import load_prompt
-from sentinel.rca.resilience import budget_exceeded, structured_with_repair
 from sentinel.rca.state import SentinelState
 
 AGENT_NODES = {
