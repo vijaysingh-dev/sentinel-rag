@@ -18,20 +18,20 @@ The order event bus. checkout produces to it; accounting and fraud-detection con
 Grafana: the `kafka` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="kafka", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="kafka"}[5m]))
-# kafka_server_brokertopicmetrics_messagesin_total rate
-sum(rate(kafka_server_brokertopicmetrics_messagesin_total{service_name="kafka"}[5m]))
-# kafka_consumergroup_lag
-kafka_consumergroup_lag{service_name="kafka"}
+# kafka emits no spans, so there is no span-metrics error ratio; use the signals below
+# kafka_request_time_99p_milliseconds
+kafka_request_time_99p_milliseconds{service_name="kafka"}
+# kafka_message_count_total rate
+sum(rate(kafka_message_count_total{service_name="kafka"}[5m]))
+# kafka_request_failed_total rate
+sum(rate(kafka_request_failed_total{service_name="kafka"}[5m]))
 ```
 
 In Jaeger, filter to `service = kafka` and sort by duration for the latency case, or add `error = true` for the error case.
 
 ## Diagnose
 
-1. Pull the RED panels for `kafka`: `kafka_server_brokertopicmetrics_messagesin_total`, `kafka_consumergroup_lag`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+1. Pull the RED panels for `kafka`: `kafka_request_time_99p_milliseconds`, `kafka_message_count_total`, `kafka_request_failed_total`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 2. Open a trace for a failing `kafka` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 3. Check whether a fault flag is active. `kafka` has injectable faults; a flag flip is by far the most common cause in this environment. Query flagd for the flags below and compare the timestamp to when the alert started.
 
@@ -41,9 +41,9 @@ In Jaeger, filter to `service = kafka` and sort by duration for the latency case
 
 **Effect.** Broker is overloaded and consumers are given an added delay, so lag spikes.
 
-**Signature.** kafka_consumergroup_lag climbing for accounting and fraud-detection; checkout produce latency up; storefront unaffected.
+**Signature.** kafka_consumer_group_lag_ratio climbing for the accounting and fraud-detection groups; checkout produce latency up; storefront unaffected.
 
-**Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `kafka_server_brokertopicmetrics_messagesin_total` returns to baseline before closing.
+**Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `kafka_request_time_99p_milliseconds` returns to baseline before closing.
 
 ## Mitigate
 
@@ -57,7 +57,7 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 
 ## After the incident
 
-- Confirm `kafka_server_brokertopicmetrics_messagesin_total` and the error ratio have held at baseline for 15 minutes.
+- Confirm `kafka_request_time_99p_milliseconds` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.
 

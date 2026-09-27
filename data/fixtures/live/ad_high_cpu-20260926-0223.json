@@ -1,0 +1,322 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:eec817aa24a00bb7::0006::9e5d71a12603e333",
+      "title": "INC-2670: frontend elevated latency > What went well",
+      "doc_type": "incident",
+      "effective_date": "2026-09-26",
+      "score": 6.3747,
+      "text": "[inc 2670 frontend imageslowload > INC-2670: frontend elevated latency > What went well]\n- Once a trace was pulled (08:48), the cause was clear within two minutes.\n- The `frontend` runbook's documented signature matched exactly, so no time was lost confirming."
+    },
+    {
+      "ref": "doc:eec817aa24a00bb7::0007::9acb88403bc079e0",
+      "title": "INC-2670: frontend elevated latency > Action items",
+      "doc_type": "incident",
+      "effective_date": "2026-09-26",
+      "score": 6.083,
+      "text": "[inc 2670 frontend imageslowload > INC-2670: frontend elevated latency > Action items]\n1. Add a Grafana annotation and a low-urgency alert on `flagd_flag_evaluations_total` deltas, so a flag flip is visible on every dashboard. *(owner: platform-eng)*\n2. Add \"check the dependency graph before the service that paged\" as step 1 of the `frontend-proxy` runbook. *(owner: storefront)* \u2014 done, see `knowledge/runbook/frontend-proxy.md`.\n3. Confirm the `frontend` runbook's known-failure-modes section lists `imageSlowLoad` with this signature. *(owner: storefront)*"
+    },
+    {
+      "ref": "doc:583e49e0d33b2376::0011::fcf93a5c792d41bb",
+      "title": "knowledge/runbook/frontend.md",
+      "doc_type": "runbook",
+      "effective_date": "2026-09-26",
+      "score": 4.3464,
+      "text": "# frontend runbook\n\nServes the web storefront and the JSON API the browser calls. Fans out to every product path. Implemented in TypeScript / Next.js. Owned by the storefront team (PD-STOREFRONT, #astroshop-storefront).\n\n## When this fires\n\n`frontend` is on the customer-facing critical path. A failure here surfaces on `frontend-proxy` as elevated errors or latency, often before a `frontend` alert fires. If you were paged for one of those and the cause is not obvious there, check `frontend` early.\n\n## Thresholds\n\n| Signal | Objective | Page at |\n| --- | --- | --- |\n| Availability (28d) | 99.9% | error budget 50% burned in 1h |\n| Duration p95 | < 800 ms | > 1200 ms for 5m |\n| Duration p99 | < 1500 ms | > 2250 ms for 5m |\n\n## Dashboards and queries\n\nGrafana: the `frontend` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:\n\n# error ratio (span metrics)\nsum(rate(traces_span_metrics_calls_total{service_name=\"frontend\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[5m]))\n  / sum(rate(traces_span_metrics_calls_total{service_name=\"frontend\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))\n# p95 duration, ms (span metrics)\nhistogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"frontend\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))\n# http_server_request_duration_seconds p95\nhistogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"frontend\""
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:0db517817a09",
+    "expr": "sum by (service_name) (jvm_cpu_recent_utilization_ratio)",
+    "window_minutes": 15,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "ad"
+          },
+          "first": 0.00036,
+          "last": 0.48331,
+          "min": 0.00017,
+          "max": 0.48331,
+          "direction": "rising",
+          "from": "2026-09-26T02:11:07.080000+00:00",
+          "to": "2026-09-26T02:26:07.080000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "fraud-detection"
+          },
+          "first": 0.00057,
+          "last": 0.00091,
+          "min": 0.00034,
+          "max": 0.00091,
+          "direction": "rising",
+          "from": "2026-09-26T02:11:07.080000+00:00",
+          "to": "2026-09-26T02:26:07.080000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "kafka"
+          },
+          "first": 0.00119,
+          "last": 0.00118,
+          "min": 0.00097,
+          "max": 0.00203,
+          "direction": "flat",
+          "from": "2026-09-26T02:11:07.080000+00:00",
+          "to": "2026-09-26T02:26:07.080000+00:00",
+          "points": 31
+        }
+      ],
+      "series_count": 3
+    }
+  },
+  "find_traces": {
+    "ref": "trace:0863e170b164",
+    "service": "frontend",
+    "count": 5,
+    "traces": [
+      {
+        "trace_id": "e82724de5f49aa272565ecfa931a02b8",
+        "found": true,
+        "duration_ms": 608535.4,
+        "span_count": 16,
+        "services": [
+          "currency",
+          "frontend",
+          "frontend-proxy",
+          "frontend-web",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 18.1,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "b6073b2c18a82bbc778f9f31b207a7c0",
+        "found": true,
+        "duration_ms": 318.0,
+        "span_count": 24,
+        "services": [
+          "frontend",
+          "frontend-proxy",
+          "frontend-web",
+          "product-catalog",
+          "recommendation"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 91.0,
+          "share_of_trace": 0.29
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "3299a6b5c74073b4cea1bdc58ff8976a",
+        "found": true,
+        "duration_ms": 311.0,
+        "span_count": 24,
+        "services": [
+          "frontend",
+          "frontend-proxy",
+          "frontend-web",
+          "product-catalog",
+          "recommendation"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 244.2,
+          "share_of_trace": 0.79
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "0ce71457309410afd5c6992fde053bfe",
+        "found": true,
+        "duration_ms": 193.0,
+        "span_count": 9,
+        "services": [
+          "ad",
+          "frontend",
+          "frontend-proxy",
+          "frontend-web"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 27.2,
+          "share_of_trace": 0.14
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "df119857fd9702f778f1647b3a34dd0f",
+        "found": true,
+        "duration_ms": 186.0,
+        "span_count": 24,
+        "services": [
+          "frontend",
+          "frontend-proxy",
+          "frontend-web",
+          "product-catalog",
+          "recommendation"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 140.3,
+          "share_of_trace": 0.75
+        },
+        "error_spans": []
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span.",
+    "tenant": "default"
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "adHighCpu",
+          "current_variant": "on",
+          "resting_variant": "off",
+          "active": true,
+          "value": true
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:1h",
+    "count": 9,
+    "changes": [
+      {
+        "ts": "2026-09-26T02:04:41.843393+00:00",
+        "flag": "recommendationCacheFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "recommendation depends on product-catalog \u2014 watch whether the fault stays isolated"
+      },
+      {
+        "ts": "2026-09-26T02:07:11.844842+00:00",
+        "flag": "recommendationCacheFailure",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "recommendation depends on product-catalog \u2014 watch whether the fault stays isolated"
+      },
+      {
+        "ts": "2026-09-26T02:10:16.061711+00:00",
+        "flag": "productCatalogFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "product-catalog is a shared dependency of both frontend and recommendation \u2014 good multi-parent test"
+      },
+      {
+        "ts": "2026-09-26T02:12:46.062761+00:00",
+        "flag": "productCatalogFailure",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "product-catalog is a shared dependency of both frontend and recommendation \u2014 good multi-parent test"
+      },
+      {
+        "ts": "2026-09-26T02:14:03.496824+00:00",
+        "flag": "intlShippingSlowdown",
+        "event": "incident_start",
+        "variant": "10sec",
+        "note": "latency injection, not a hard failure \u2014 healthchecks may stay green while checkout gets slow"
+      },
+      {
+        "ts": "2026-09-26T02:17:23.498327+00:00",
+        "flag": "intlShippingSlowdown",
+        "event": "incident_end",
+        "variant": "10sec",
+        "note": "latency injection, not a hard failure \u2014 healthchecks may stay green while checkout gets slow"
+      },
+      {
+        "ts": "2026-09-26T02:17:24.774592+00:00",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      },
+      {
+        "ts": "2026-09-26T02:21:24.775418+00:00",
+        "flag": "emailMemoryLeak",
+        "event": "incident_end",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      },
+      {
+        "ts": "2026-09-26T02:23:37.414820+00:00",
+        "flag": "adHighCpu",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "resource exhaustion rather than a hard failure \u2014 may show as slow, not down"
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:5",
+    "count": 5,
+    "incidents": [
+      {
+        "ts": "2026-09-26T02:14:03.496824+00:00",
+        "scenario": "shipping_slowdown",
+        "flag": "intlShippingSlowdown",
+        "event": "incident_start",
+        "variant": "10sec",
+        "note": "latency injection, not a hard failure \u2014 healthchecks may stay green while checkout gets slow"
+      },
+      {
+        "ts": "2026-09-26T02:17:23.498327+00:00",
+        "scenario": "shipping_slowdown",
+        "flag": "intlShippingSlowdown",
+        "event": "incident_end",
+        "variant": "10sec",
+        "note": "latency injection, not a hard failure \u2014 healthchecks may stay green while checkout gets slow"
+      },
+      {
+        "ts": "2026-09-26T02:17:24.774592+00:00",
+        "scenario": "email_memory_leak",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      },
+      {
+        "ts": "2026-09-26T02:21:24.775418+00:00",
+        "scenario": "email_memory_leak",
+        "flag": "emailMemoryLeak",
+        "event": "incident_end",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      },
+      {
+        "ts": "2026-09-26T02:23:37.414820+00:00",
+        "scenario": "ad_high_cpu",
+        "flag": "adHighCpu",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "resource exhaustion rather than a hard failure \u2014 may show as slow, not down"
+      }
+    ],
+    "tenant": "default"
+  }
+}

@@ -37,23 +37,46 @@ from sentinel.rca.runtime import current_tenant, fixture_lookup
 # Metric families the otel-demo exposes. A metric name in a query must start with one of these.
 # Kept as prefixes, not exact names, because histograms fan out to _bucket / _count / _sum and
 # the OTel SDKs add a unit suffix. Extend this when services.yaml gains a metric, not ad hoc.
+#
+# Taken from a live `/api/v1/label/__name__/values` listing of the full stack, grouped by who
+# emits them. The earlier list was written from the upstream docs (`app_*`, `pg_*`) and missed
+# most of what actually exists — including the span metrics that are the only RED source every
+# service shares — so the model's correct queries were being rejected as off-allowlist.
 ALLOWED_METRIC_PREFIXES: tuple[str, ...] = (
+    # RED, per service, from the collector's span-metrics connector
+    "traces_span_metrics_",
+    # SDK request metrics (OTel semantic conventions)
     "http_server_",
     "http_client_",
     "rpc_server_",
     "rpc_client_",
-    "app_",
+    "db_client_",
+    "db_sql_",
+    # business counters the demo services emit (demo_cart_*, demo_payment_*, quotes_total, ...)
+    "demo_",
+    "quotes_",
+    # language runtimes
     "process_",
     "jvm_",
+    "dotnet_",
+    "aspnetcore_",
+    "kestrel_",
+    "go_",
+    "nodejs_",
+    "v8js_",
+    "cpython_",
     "runtime_",
+    # collector receivers: docker_stats, host_metrics, kafka, redis, postgresql, nginx, http check
+    "container_",
     "system_",
     "kafka_",
     "redis_",
-    "pg_",
+    "postgresql_",
     "nginx_",
-    "envoy_",
+    "httpcheck_",
     "otelcol_",
-    "flagd_",
+    # flag evaluations (OpenFeature client side) and Prometheus' own series
+    "feature_flag_",
     "up",
     "scrape_",
     "target_",
@@ -65,7 +88,18 @@ FORBIDDEN_FUNCS = re.compile(
 
 # an identifier that is used like a metric selector: a bare name followed by { or [ or whitespace
 # then an operator, at the start or after a ( , or binary operator.
-_METRIC_TOKEN = re.compile(r"(?<![\w:])([a-z_][a-z0-9_]*)(?=\s*[\{\[\(]|\s|$)", re.IGNORECASE)
+# Metric extraction works by elimination, not by guessing what a metric looks like. Everything
+# that is *not* a metric name is stripped first — quoted strings, `{...}` label matchers,
+# `by/without/on/ignoring (...)` label lists, `[...]` ranges — and every identifier left must then
+# be either a PromQL keyword/function or an allowlisted metric. The previous version matched only
+# identifiers followed by `{`, `[`, `(` or whitespace, so a metric followed by `)` was invisible:
+# `sum(up{}) + sum(any_metric)` passed (only `up` was checked), and the legitimate
+# `sum by (service_name) (jvm_cpu_recent_utilization_ratio)` was rejected as having no metric.
+_STRINGS = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'")
+_MATCHERS = re.compile(r"\{[^{}]*\}")
+_LABEL_LISTS = re.compile(r"\b(by|without|on|ignoring|group_left|group_right)\s*\([^()]*\)", re.IGNORECASE)
+_RANGES = re.compile(r"\[[^\[\]]*\]")
+_IDENTIFIER = re.compile(r"(?<![\w:.])([a-z_:][\w:]*)", re.IGNORECASE)
 
 # PromQL keywords and function names that are not metric names — excluded from the allowlist
 # check. Grouped by kind for review; the flat frozenset is what the validator uses.
@@ -87,6 +121,8 @@ _NOT_METRICS: frozenset[str] = frozenset(
        "present_over_time")
     # date functions
     + ("day_of_month", "day_of_week", "days_in_month", "hour", "minute", "month", "year")
+    # literals and @-modifier functions
+    + ("inf", "nan", "start", "end")
 )
 
 
@@ -104,8 +140,16 @@ def validate_promql(expr: str, *, range_hours: float | None) -> str:
     if FORBIDDEN_FUNCS.search(stripped):
         raise UnsafeQuery("expression uses a function that is not permitted from this tool")
 
-    names = {m.group(1) for m in _METRIC_TOKEN.finditer(stripped)}
-    metric_names = {n for n in names if n not in _NOT_METRICS and not n.isupper()}
+    # A `{__name__=...}` matcher selects metrics without naming them, which is the one way to reach
+    # a series the identifier check below never sees.
+    if "__name__" in stripped:
+        raise UnsafeQuery("select metrics by name, not with a __name__ matcher")
+    skeleton = _STRINGS.sub('""', stripped)
+    skeleton = _MATCHERS.sub("{}", skeleton)
+    skeleton = _LABEL_LISTS.sub(" ", skeleton)
+    skeleton = _RANGES.sub("[]", skeleton)
+    names = {m.group(1) for m in _IDENTIFIER.finditer(skeleton)}
+    metric_names = {n for n in names if n.lower() not in _NOT_METRICS}
     if not metric_names:
         raise UnsafeQuery("no metric name found — the expression must select at least one metric")
     for name in sorted(metric_names):

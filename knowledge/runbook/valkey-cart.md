@@ -18,20 +18,18 @@ In-memory store behind cart. Redis wire protocol. Implemented in C / Valkey. Own
 Grafana: the `valkey-cart` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="valkey-cart", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="valkey-cart"}[5m]))
-# redis_commands_processed_total rate
-sum(rate(redis_commands_processed_total{service_name="valkey-cart"}[5m]))
+# valkey-cart emits no spans, so there is no span-metrics error ratio; use the signals below
 # redis_memory_used_bytes
-redis_memory_used_bytes{service_name="valkey-cart"}
+redis_memory_used_bytes
+# redis_commands_processed_total rate
+sum(rate(redis_commands_processed_total[5m]))
 ```
 
 In Jaeger, filter to `service = valkey-cart` and sort by duration for the latency case, or add `error = true` for the error case.
 
 ## Diagnose
 
-1. Pull the RED panels for `valkey-cart`: `redis_commands_processed_total`, `redis_memory_used_bytes`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+1. Pull the RED panels for `valkey-cart`: `redis_memory_used_bytes`, `redis_commands_processed_total`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 2. Open a trace for a failing `valkey-cart` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 
 ## Mitigate
@@ -46,6 +44,6 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 
 ## After the incident
 
-- Confirm `redis_commands_processed_total` and the error ratio have held at baseline for 15 minutes.
+- Confirm `redis_memory_used_bytes` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.

@@ -18,20 +18,22 @@ Sends the order-confirmation email. Called by checkout after the order is commit
 Grafana: the `email` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="email", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="email"}[5m]))
-# app_email_sent_total rate
-sum(rate(app_email_sent_total{service_name="email"}[5m]))
-# process_resident_memory_bytes
-process_resident_memory_bytes{service_name="email"}
+# error ratio (span metrics)
+sum(rate(traces_span_metrics_calls_total{service_name="email", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+  / sum(rate(traces_span_metrics_calls_total{service_name="email", span_kind="SPAN_KIND_SERVER"}[5m]))
+# p95 duration, ms (span metrics)
+histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name="email", span_kind="SPAN_KIND_SERVER"}[5m])))
+# demo_notification_confirmations_total rate
+sum(rate(demo_notification_confirmations_total{service_name="email"}[5m]))
+# container_memory_usage_total_bytes
+container_memory_usage_total_bytes{container_name="email"}
 ```
 
 In Jaeger, filter to `service = email` and sort by duration for the latency case, or add `error = true` for the error case.
 
 ## Diagnose
 
-1. Pull the RED panels for `email`: `app_email_sent_total`, `process_resident_memory_bytes`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+1. Pull the RED panels for `email`: `demo_notification_confirmations_total`, `container_memory_usage_total_bytes`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 2. Open a trace for a failing `email` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 3. Check whether a fault flag is active. `email` has injectable faults; a flag flip is by far the most common cause in this environment. Query flagd for the flags below and compare the timestamp to when the alert started.
 
@@ -41,9 +43,9 @@ In Jaeger, filter to `service = email` and sort by duration for the latency case
 
 **Effect.** RSS climbs steadily until the runtime OOMs and restarts.
 
-**Signature.** email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort).
+**Signature.** email container_memory_usage_total_bytes ramps linearly toward its 100M limit; OOM restarts; checkout unaffected (call is best-effort).
 
-**Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `app_email_sent_total` returns to baseline before closing.
+**Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `demo_notification_confirmations_total` returns to baseline before closing.
 
 ## Mitigate
 
@@ -57,7 +59,7 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 
 ## After the incident
 
-- Confirm `app_email_sent_total` and the error ratio have held at baseline for 15 minutes.
+- Confirm `demo_notification_confirmations_total` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.
 

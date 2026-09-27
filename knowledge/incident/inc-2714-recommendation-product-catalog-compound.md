@@ -18,7 +18,7 @@ Two alerts fired minutes apart: `recommendation` (`recommendationCacheFailure`) 
 ## Timeline
 
 - 11:00 — `recommendationCacheFailure` set to its fault variant on `recommendation`. No alert yet.
-- 11:02 — First alert: `recommendation` signature matches `recommendationCacheFailure` — recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing.
+- 11:02 — First alert: `recommendation` signature matches `recommendationCacheFailure` — product-catalog request_rate up sharply (every recommendation fans out); recommendation process_memory_usage_bytes climbing.
 - 11:04 — `productCatalogFailure` set to its fault variant on `product-catalog`, independently of the above.
 - 11:06 — Second alert: `product-catalog` signature matches `productCatalogFailure` — product-catalog error_rate low but non-zero; errors correlate with one product; frontend PDP errors for that product only.
 - 11:09 — Responders initially treat this as one incident given the timing overlap; `recommendation` calls `product-catalog`, so cascade is the natural first guess.
@@ -47,6 +47,6 @@ Two independent feature flags were active concurrently: `recommendationCacheFail
 ## Detection signatures
 
 ```
-recommendation (recommendationCacheFailure): recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing.
+recommendation (recommendationCacheFailure): product-catalog request_rate up sharply (every recommendation fans out); recommendation process_memory_usage_bytes climbing.
 product-catalog (productCatalogFailure): product-catalog error_rate low but non-zero; errors correlate with one product; frontend PDP errors for that product only.
 ```

@@ -189,12 +189,14 @@ class LocalParser(BaseParser):
                     table_bboxes.append(table_obj.bbox)
 
                 # `filter` drops any word whose midpoint falls inside a table we already captured.
-                def outside_tables(obj: dict) -> bool:
-                    if not table_bboxes:
+                # Bound as a default so the predicate carries this page's boxes, not whatever the loop
+                # variable holds when pdfplumber eventually calls it.
+                def outside_tables(obj: dict, bboxes: tuple = tuple(table_bboxes)) -> bool:
+                    if not bboxes:
                         return True
                     x = (obj.get("x0", 0) + obj.get("x1", 0)) / 2
                     y = (obj.get("top", 0) + obj.get("bottom", 0)) / 2
-                    return not any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1 in table_bboxes)
+                    return not any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1 in bboxes)
 
                 text = page.filter(outside_tables).extract_text() or ""
                 text_blocks = self._blocks_from_text(text, page_no)

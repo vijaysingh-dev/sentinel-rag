@@ -12,7 +12,7 @@ rather than being invisible context for a wrong conclusion.
 
 from __future__ import annotations
 
-from operator import add
+from operator import add, or_
 from typing import Annotated, Literal, TypedDict
 
 from langgraph.graph.message import add_messages
@@ -67,8 +67,11 @@ class SentinelState(TypedDict, total=False):
     usd_spent: Annotated[float, add]
     step_count: int
     errors: Annotated[list[dict], add]
-    degraded: bool
-    retrieval_mode: str  # full | dense_only | bm25_only | cache
+    # OR, not last-value: two specialists dispatched in the same step can both fail, and both write
+    # degraded=True through the guard. A plain bool channel accepts one write per step, so the
+    # degradation path itself raised InvalidUpdateError and killed the run it was meant to save.
+    degraded: Annotated[bool, or_]
+    retrieval_mode: str  # full | cache | dense_only | bm25_only | rerank_failed
     index_version: str
     approved_by: str
     outcome: str

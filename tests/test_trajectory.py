@@ -57,8 +57,14 @@ def test_specialists_have_disjoint_tool_scopes():
     [
         "node_filesystem_free_bytes",  # node_ is not a platform prefix
         "some_secret_gauge",
-        "container_memory_usage_bytes",  # cAdvisor, not exposed here
+        "kube_pod_status_ready",  # kube-state-metrics; there is no Kubernetes here
         'label_replace(up, "x", "$1", "job", "(.*)")',  # forbidden function
+        # an off-allowlist metric followed by `)` used to be invisible to the extractor, so one
+        # allowed metric anywhere in the expression let any other through
+        "sum(up{}) + sum(secret_metric)",
+        'topk(5, up{job="x"}) or topk(5, node_secret)',
+        "up{job=\"a\"} and on(instance) node_load1",
+        'up + {__name__="secret_metric"}',
     ],
 )
 def test_promql_validator_rejects_unknown_metrics_and_forbidden_funcs(expr):
@@ -67,6 +73,28 @@ def test_promql_validator_rejects_unknown_metrics_and_forbidden_funcs(expr):
 
     with pytest.raises(UnsafeQuery):
         validate_promql(expr, range_hours=0.5)
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        # the span-metrics error ratio the metrics prompt and every runbook hand the model
+        'sum(rate(traces_span_metrics_calls_total{service_name="checkout", span_kind="SPAN_KIND_SERVER", '
+        'status_code="STATUS_CODE_ERROR"}[5m])) / sum(rate(traces_span_metrics_calls_total{service_name="checkout", '
+        'span_kind="SPAN_KIND_SERVER"}[5m]))',
+        'container_memory_usage_total_bytes{container_name="email"}',
+        'kafka_consumer_group_lag_ratio{group="accounting"}',
+        "postgresql_backends",
+        # a bare metric inside an aggregation used to be rejected as "no metric name found"
+        "sum by (service_name) (jvm_cpu_recent_utilization_ratio)",
+        "max_over_time(process_memory_usage_bytes{service_name=\"recommendation\"}[30m:1m])",
+    ],
+)
+def test_promql_validator_accepts_the_metrics_the_platform_actually_exposes(expr):
+    """The allowlist was once written from upstream docs and rejected every working RED query."""
+    from sentinel.rca.tools.metrics import validate_promql
+
+    assert validate_promql(expr, range_hours=0.5)
 
 
 def test_promql_validator_rejects_an_unbounded_or_wide_range():
@@ -136,3 +164,60 @@ def test_safety_check_flags_fabricated_reference():
     state = {"evidence": [{"source_ref": "promql:invented"}], "outcome": "running"}
     violations = check_safety(state, {"promql:real"})
     assert any(v["kind"] == "fabricated_reference" for v in violations)
+
+
+def test_parallel_specialist_failures_merge_instead_of_crashing_the_graph():
+    """Two specialists failing in one superstep both write degraded=True; that must merge."""
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.types import Command
+
+    from sentinel.rca.guard import _degraded
+    from sentinel.rca.state import SentinelState
+
+    def fan_out(_state):
+        return Command(goto=["metrics", "tracing"])
+
+    def failing(name):
+        def node(_state):
+            cmd = _degraded(name, "LengthFinishReasonError")
+            return Command(goto=END, update=cmd.update)
+
+        return node
+
+    g = StateGraph(SentinelState)
+    g.add_node("fan_out", fan_out)
+    g.add_node("metrics", failing("metrics"))
+    g.add_node("tracing", failing("tracing"))
+    g.add_edge(START, "fan_out")
+    out = g.compile().invoke({"degraded": False, "completed_agents": [], "errors": []})
+
+    assert out["degraded"] is True
+    assert sorted(out["completed_agents"]) == ["metrics", "tracing"]
+
+
+def test_search_knowledge_replays_a_list_fixture():
+    """Every fixture on disk records search_knowledge as a plain result list; replaying one used
+    to raise AttributeError, so eval-agent's knowledge specialist always ran degraded."""
+    import asyncio
+    import json
+
+    from sentinel.rca.runtime import fixtures, request_context
+    from sentinel.rca.tools.retrieval import search_knowledge
+
+    path = "data/fixtures/payment-paymentfailure.json"
+    with open(path) as f:
+        recorded = json.load(f)["search_knowledge"]
+    with fixtures(path), request_context("default", ["admin"]):
+        out = asyncio.run(search_knowledge.ainvoke({"query": "payment errors", "doc_type": "runbook"}))
+    assert out == recorded
+
+
+def test_search_knowledge_tells_the_model_about_every_doc_type():
+    """The docstring is the tool description; a doc_type it doesn't name is one the model never uses."""
+    from pathlib import Path
+
+    from sentinel.rca.tools.retrieval import search_knowledge
+
+    doc_types = {d.name for d in Path("knowledge").iterdir() if d.is_dir() and d.name != "restricted"}
+    missing = {t for t in doc_types if f"'{t}'" not in search_knowledge.description}
+    assert not missing, f"search_knowledge docstring does not mention: {sorted(missing)}"

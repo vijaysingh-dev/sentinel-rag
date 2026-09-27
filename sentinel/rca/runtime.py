@@ -48,7 +48,7 @@ def request_context(tenant_id: str, roles: list[str], components: list[str] | No
     try:
         yield
     finally:
-        for var, token in zip((_tenant, _roles, _components), tokens):
+        for var, token in zip((_tenant, _roles, _components), tokens, strict=True):
             var.reset(token)
 
 

@@ -20,7 +20,7 @@ The "you may also like" carousel was slow or empty. No checkout impact. Secondar
 - 15:02 — First alert: `frontend` error ratio crosses its page threshold. catalog and the storefront team are paged.
 - 15:04 — Responder confirms the alert on `frontend` and begins checking its own dependencies rather than `frontend` itself, since `frontend` code has not changed.
 - 15:07 — Trace inspection: a `frontend` request trace shows the error status originating in the `recommendation` span, not in `frontend`.
-- 15:09 — `recommendation` RED panels match the known signature — recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing.
+- 15:09 — `recommendation` RED panels match the known signature — product-catalog request_rate up sharply (every recommendation fans out); recommendation process_memory_usage_bytes climbing.
 - 15:11 — flagd checked: `recommendationCacheFailure` is active, set at 15:00. Cause confirmed.
 - 15:12 — Flag reset to resting variant. `recommendation` recovers on the next flag evaluation.
 - 15:16 — `frontend` metrics back at baseline for 3 minutes. Incident closed.
@@ -49,5 +49,5 @@ The `recommendationCacheFailure` feature flag was set to its fault variant. The 
 ## Detection signature
 
 ```
-recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing.
+product-catalog request_rate up sharply (every recommendation fans out); recommendation process_memory_usage_bytes climbing.
 ```

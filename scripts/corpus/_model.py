@@ -58,6 +58,29 @@ class Team:
     owns: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class Deployment:
+    """How a service runs under `make demo-up` — the `deployment:` section of services.yaml."""
+
+    deployed: bool
+    protocol: str
+    memory_limit: str
+    port: int | None = None
+    healthcheck: str = ""
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class Component:
+    """A non-business container: traffic, tooling, observability backends, sidecars, shared infra."""
+
+    name: str
+    category: str
+    runs_in: str
+    what: str
+    why_it_matters: str
+
+
 @dataclass
 class Platform:
     name: str
@@ -68,6 +91,8 @@ class Platform:
     teams: dict[str, Team]
     dependents: dict[str, tuple[str, ...]] = field(default_factory=dict)
     faults: dict[str, Fault] = field(default_factory=dict)
+    deployment: dict[str, Deployment] = field(default_factory=dict)
+    components: dict[str, Component] = field(default_factory=dict)
 
     def service(self, name: str) -> Service:
         return self.services[name]
@@ -129,6 +154,28 @@ def load() -> Platform:
 
     faults = {f.flag: f for svc in services.values() for f in svc.faults}
 
+    deployment = {
+        name: Deployment(
+            deployed=d["deployed"],
+            protocol=str(d["protocol"]),
+            memory_limit=str(d["memory_limit"]),
+            port=d.get("port"),
+            healthcheck=str(d.get("healthcheck", "")),
+            note=d.get("note", ""),
+        )
+        for name, d in raw.get("deployment", {}).items()
+    }
+    components = {
+        name: Component(
+            name=name,
+            category=c["category"],
+            runs_in=c["runs_in"],
+            what=c["what"].strip(),
+            why_it_matters=c["why_it_matters"].strip(),
+        )
+        for name, c in raw.get("components", {}).items()
+    }
+
     return Platform(
         name=p["name"],
         summary=p["summary"].strip(),
@@ -138,6 +185,8 @@ def load() -> Platform:
         teams=teams,
         dependents={k: tuple(sorted(v)) for k, v in dependents.items()},
         faults=faults,
+        deployment=deployment,
+        components=components,
     )
 
 

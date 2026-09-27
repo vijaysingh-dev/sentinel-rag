@@ -26,7 +26,7 @@ Relational store behind product-catalog. Owned by platform-eng (PD-PLATFORM).
 
 ## If `cart` is down
 
-Holds the customer's cart. Backed by valkey-cart (Redis-compatible). No container healthcheck — liveness is process-only. Owned by checkout (PD-CHECKOUT).
+Holds the customer's cart. Backed by valkey-cart (Redis-compatible). Health-checked with grpc_health_probe; a failing check marks it unhealthy but never restarts it. Owned by checkout (PD-CHECKOUT).
 
 **Direct callers:** `checkout`, `frontend`.
 
@@ -36,7 +36,7 @@ Holds the customer's cart. Backed by valkey-cart (Redis-compatible). No containe
 
 ## If `checkout` is down
 
-The synchronous order pipeline. Calls cart, currency, product-catalog, shipping, payment, then email, in order. Owned by checkout (PD-CHECKOUT).
+The order pipeline. Gets the cart, prices each item (product-catalog + currency), quotes shipping, charges payment, books shipping, empties the cart, emails a confirmation, then publishes the order to Kafka. Owned by checkout (PD-CHECKOUT).
 
 **Direct callers:** `frontend`.
 

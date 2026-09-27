@@ -5,7 +5,7 @@
       "title": "email runbook > Known failure modes > emailMemoryLeak",
       "doc_type": "runbook",
       "score": 0.82,
-      "text": "emailMemoryLeak. Effect: fault injected. Signature: email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort). Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
+      "text": "emailMemoryLeak. Effect: fault injected. Signature: email container_memory_usage_total_bytes ramps linearly toward its 100M limit; OOM restarts; checkout unaffected (call is best-effort). Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
     },
     {
       "ref": "doc:incident-email",

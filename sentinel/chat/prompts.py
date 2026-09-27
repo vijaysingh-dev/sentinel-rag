@@ -14,8 +14,13 @@ from pathlib import Path
 PROMPT_DIR = Path(__file__).parent / "prompts"
 
 ROUTER_FALLBACK_V1 = """You classify one chat message for an operations assistant scoped ONLY to
-the OpenTelemetry Demo / Astroshop e-commerce platform (its services, architecture, incidents,
-runbooks, SLOs, and its live health/status).
+the OpenTelemetry Demo / Astroshop e-commerce platform. In scope: what services exist and how
+many, what each does, how they connect, ports, languages, owning teams, SLOs; the infrastructure
+and deployment (Docker Compose, networks, postgres/redis, make targets); the observability stack
+(OpenTelemetry collector, Prometheus, Jaeger, Grafana, OpenSearch); feature flags, fault injection
+and failure modes; the incident-generator and system-monitor sidecars; incidents, runbooks, ADRs;
+and live health/status. A question about the platform with no specific service named ("what
+services exist?", "how is tracing set up?") is in scope — route it to `rag`.
 
 If the message is not about this platform — including general programming help, requests to
 write code unrelated to this platform, general knowledge questions, or anything else outside this

@@ -105,7 +105,7 @@ ORGANIC_INCIDENTS = [
             "queued for a free connection instead of failing fast."
         ),
         "signature": (
-            "pg_stat_activity_count pinned at the configured max; product-catalog duration_p95 up; "
+            "postgresql_backends pinned at postgresql_connection_max; product-catalog duration_p95 up; "
             "astronomy-db itself shows no errors, only saturation."
         ),
         "fix": (

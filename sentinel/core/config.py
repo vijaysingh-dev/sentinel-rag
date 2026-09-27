@@ -154,8 +154,13 @@ class Settings(BaseSettings):
     sql_row_limit: int = 500  # retained: still enforced if a SQL warehouse tool is wired back in
     promql_max_range_hours: int = 6  # a range query wider than this is rejected before it runs
     prometheus_url: str = "http://localhost:9090"
-    jaeger_url: str = "http://localhost:16686"
+    # otel-demo's Jaeger runs with base_path /jaeger/ui, which prefixes its query API too — the
+    # bare host:port answers every /api/ call with the UI's HTML, not JSON.
+    jaeger_url: str = "http://localhost:16686/jaeger/ui"
     flagd_config_path: str = ""  # path to demo.flagd.json; empty -> flag tools return "unconfigured"
+    # The tracked, shipped copy of the same file: its defaultVariants are each flag's resting state.
+    # The live file above cannot say that on its own — it only knows where a flag is *now*.
+    flagd_baseline_path: str = "app/otel-demo/src/flagd/demo.flagd.json"
     incident_log_url: str = "http://localhost:8092"  # app/incident-generator
     system_monitor_url: str = "http://localhost:8091"  # app/system-monitor
 

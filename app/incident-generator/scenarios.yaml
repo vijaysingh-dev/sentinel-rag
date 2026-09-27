@@ -29,7 +29,7 @@ scenarios:
     fault_variant: "100%"
     reset_variant: "off"
     duration_s: 150
-    note: "cart has no container healthcheck (see tree.yaml no_healthcheck) — rollup relies on process liveness only"
+    note: "cart keeps passing grpc_health_probe while AddItem/GetCart fail — expect a green health tree and a red checkout error ratio"
 
   - name: ad_service_down
     flag: adFailure

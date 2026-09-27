@@ -30,6 +30,11 @@ from sentinel.parsing.base import detect_format
 from sentinel.parsing.quality import score_parse
 
 
+def _mean(scores: list[dict[str, Any]], key: str) -> float:
+    values = [s[key] for s in scores if key in s]
+    return sum(values) / len(values) if values else 0.0
+
+
 async def bake_off(corpus: Path, truth_dir: Path, providers: list[str]) -> list[StageResult]:
     documents = [p for p in sorted(corpus.rglob("*")) if p.is_file()]
     results: list[StageResult] = []
@@ -80,21 +85,17 @@ async def bake_off(corpus: Path, truth_dir: Path, providers: list[str]) -> list[
         if not scores:
             continue
 
-        def mean(key: str) -> float:
-            values = [s[key] for s in scores if key in s]
-            return sum(values) / len(values) if values else 0.0
-
         results.append(
             StageResult(
                 stage="parsing",
                 provider=provider,
                 config={"labelled": sum(1 for s in scores if "heuristic_only" not in s)},
                 metrics={
-                    "overall": mean("overall"),
-                    "text_similarity": mean("text"),
-                    "table_f1": mean("tables"),
-                    "reading_order": mean("order"),
-                    "heading_recall": mean("headings"),
+                    "overall": _mean(scores, "overall"),
+                    "text_similarity": _mean(scores, "text"),
+                    "table_f1": _mean(scores, "tables"),
+                    "reading_order": _mean(scores, "order"),
+                    "heading_recall": _mean(scores, "headings"),
                 },
                 duration_s=time.perf_counter() - started,
                 usd_cost=total_cost,
@@ -103,7 +104,7 @@ async def bake_off(corpus: Path, truth_dir: Path, providers: list[str]) -> list[
         )
 
         print(
-            f"{provider:8s} overall={mean('overall'):.4f} tables={mean('tables'):.4f} "
+            f"{provider:8s} overall={_mean(scores, 'overall'):.4f} tables={_mean(scores, 'tables'):.4f} "
             f"docs={len(scores)} cost=${total_cost:.4f}"
         )
 

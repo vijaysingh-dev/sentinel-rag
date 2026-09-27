@@ -45,9 +45,7 @@ services:
     role: Serves the web storefront and the JSON API the browser calls. Fans out to every product path.
     depends_on: [ad, cart, checkout, currency, product-catalog, quote, recommendation, shipping, image-provider]
     slo: { availability: "99.9%", latency_p95_ms: 800, latency_p99_ms: 1500 }
-    key_metrics:
-      - http_server_request_duration_seconds        # histogram, by route + status
-      - http_server_active_requests
+    key_metrics: [http_server_request_duration_seconds, nodejs_eventloop_delay_p99_seconds, v8js_memory_heap_used_bytes]
     faults:
       - flag: imageSlowLoad
         effect: Product images take seconds to load; page render blocks on them.
@@ -61,7 +59,7 @@ services:
     role: Edge proxy. All external traffic and the flagd-ui and telemetry-docs routes pass through it.
     depends_on: [frontend]
     slo: { availability: "99.95%", latency_p95_ms: 900 }
-    key_metrics: [envoy_http_downstream_rq_total, envoy_http_downstream_rq_time]
+    key_metrics: [httpcheck_status, httpcheck_duration_milliseconds]
     faults: []
 
   cart:
@@ -69,10 +67,10 @@ services:
     team: checkout
     language: "C#"
     runtime: ".NET"
-    role: Holds the customer's cart. Backed by valkey-cart (Redis-compatible). No container healthcheck — liveness is process-only.
+    role: Holds the customer's cart. Backed by valkey-cart (Redis-compatible). Health-checked with grpc_health_probe; a failing check marks it unhealthy but never restarts it.
     depends_on: [valkey-cart]
     slo: { availability: "99.9%", latency_p95_ms: 150 }
-    key_metrics: [rpc_server_duration_milliseconds, app_cart_items_total]
+    key_metrics: [http_server_request_duration_seconds, demo_cart_add_item_latency_seconds, dotnet_exceptions_total]
     faults:
       - flag: cartFailure
         effect: AddItem and GetCart fail for a configurable percentage of calls.
@@ -85,10 +83,10 @@ services:
     tier: 0
     team: checkout
     language: Go
-    role: The synchronous order pipeline. Calls cart, currency, product-catalog, shipping, payment, then email, in order.
+    role: The order pipeline. Gets the cart, prices each item (product-catalog + currency), quotes shipping, charges payment, books shipping, empties the cart, emails a confirmation, then publishes the order to Kafka.
     depends_on: [cart, currency, email, payment, product-catalog, shipping]
     slo: { availability: "99.5%", latency_p95_ms: 1200, latency_p99_ms: 2500 }
-    key_metrics: [rpc_server_duration_milliseconds, app_orders_total, app_orders_failed_total]
+    key_metrics: [rpc_server_call_duration_seconds, rpc_client_call_duration_seconds, go_goroutine_count]
     faults: []
     notes: >
       Checkout has no fault flag of its own. Every checkout incident is a downstream failure
@@ -103,11 +101,11 @@ services:
     role: Charges the card. Pure compute stub, no real PSP. The last synchronous call before the order is confirmed.
     depends_on: []
     slo: { availability: "99.9%", latency_p95_ms: 200 }
-    key_metrics: [rpc_server_duration_milliseconds, app_payment_transactions_total]
+    key_metrics: [demo_payment_transactions_total, nodejs_eventloop_delay_p99_seconds]
     faults:
       - flag: paymentFailure
         effect: charge() throws for n% of requests.
-        signature: payment error_rate = n%; checkout app_orders_failed_total up; no latency change.
+        signature: payment error_rate = n% (span status ERROR on charge); checkout error_rate up in step; no latency change.
       - flag: paymentUnreachable
         effect: The service refuses all connections.
         signature: checkout sees connection-refused to payment; payment scrape target down; 100% checkout failure.
@@ -119,7 +117,7 @@ services:
     role: Quotes a shipping cost and books the shipment. Called by checkout.
     depends_on: [quote]
     slo: { availability: "99.5%", latency_p95_ms: 500 }
-    key_metrics: [rpc_server_duration_milliseconds]
+    key_metrics: [http_server_request_duration_seconds, demo_shipping_items_shipped_total]
     faults:
       - flag: intlShippingSlowdown
         effect: International destinations get a multi-second artificial delay.
@@ -132,7 +130,7 @@ services:
     role: Converts prices between currencies. Called by frontend and checkout. Pure compute, no dependencies.
     depends_on: []
     slo: { availability: "99.95%", latency_p95_ms: 50 }
-    key_metrics: [rpc_server_duration_milliseconds]
+    key_metrics: [demo_exchange_conversions_counter_total, container_cpu_utilization_ratio]
     faults: []
 
   email:
@@ -142,11 +140,11 @@ services:
     role: Sends the order-confirmation email. Called by checkout after the order is committed, best-effort.
     depends_on: []
     slo: { availability: "99%", latency_p95_ms: 1000 }
-    key_metrics: [app_email_sent_total, process_resident_memory_bytes]
+    key_metrics: [demo_notification_confirmations_total, container_memory_usage_total_bytes]
     faults:
       - flag: emailMemoryLeak
         effect: RSS climbs steadily until the runtime OOMs and restarts.
-        signature: email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort).
+        signature: email container_memory_usage_total_bytes ramps linearly toward its 100M limit; OOM restarts; checkout unaffected (call is best-effort).
 
   product-catalog:
     tier: 0
@@ -155,7 +153,7 @@ services:
     role: The product database. Shared dependency of frontend and recommendation. Backed by astronomy-db.
     depends_on: [astronomy-db]
     slo: { availability: "99.9%", latency_p95_ms: 100 }
-    key_metrics: [rpc_server_duration_milliseconds, app_products_returned_total]
+    key_metrics: [rpc_server_call_duration_seconds, db_client_operation_duration_seconds, db_sql_connection_open]
     faults:
       - flag: productCatalogFailure
         effect: GetProduct fails for one specific product id; ListProducts is unaffected.
@@ -168,11 +166,11 @@ services:
     role: Returns "you may also like" products. Calls product-catalog. Has an in-process cache.
     depends_on: [product-catalog]
     slo: { availability: "99%", latency_p95_ms: 300 }
-    key_metrics: [rpc_server_duration_milliseconds, app_recommendations_cache_hit_ratio]
+    key_metrics: [demo_recommendation_requests_recommendations_total, process_memory_usage_bytes, process_cpu_utilization_ratio]
     faults:
       - flag: recommendationCacheFailure
         effect: The cache never hits, so every request fans out to product-catalog; memory also grows unbounded.
-        signature: recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing.
+        signature: product-catalog request_rate up sharply (every recommendation fans out); recommendation process_memory_usage_bytes climbing.
 
   ad:
     tier: 1
@@ -181,14 +179,14 @@ services:
     role: Serves a contextual ad on the product page. Leaf service under frontend.
     depends_on: []
     slo: { availability: "99%", latency_p95_ms: 250 }
-    key_metrics: [rpc_server_duration_milliseconds, jvm_gc_duration_seconds, process_cpu_utilization]
+    key_metrics: [rpc_server_duration_milliseconds, jvm_gc_duration_seconds, jvm_cpu_recent_utilization_ratio]
     faults:
       - flag: adFailure
         effect: GetAds throws for every request.
         signature: ad error_rate 100%; frontend degrades gracefully (ad slot empty), no cascade past frontend.
       - flag: adHighCpu
         effect: A background thread pins CPU.
-        signature: ad process_cpu_utilization saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
+        signature: ad jvm_cpu_recent_utilization_ratio saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
       - flag: adManualGc
         effect: Forced full GC pauses on a loop.
         signature: ad jvm_gc_duration_seconds spikes periodically; sawtooth latency; correlates with GC, not load.
@@ -200,7 +198,7 @@ services:
     role: Computes a shipping quote (weight/size -> price). Called by shipping.
     depends_on: []
     slo: { availability: "99.5%", latency_p95_ms: 200 }
-    key_metrics: [rpc_server_duration_milliseconds]
+    key_metrics: [quotes_total, container_cpu_utilization_ratio]
     faults: []
 
   image-provider:
@@ -210,7 +208,7 @@ services:
     role: Static image host for product photos. Served through frontend-proxy.
     depends_on: []
     slo: { availability: "99.9%", latency_p95_ms: 100 }
-    key_metrics: [nginx_http_requests_total]
+    key_metrics: [nginx_requests_total, nginx_connections_current]
     faults: []
 
   accounting:
@@ -221,7 +219,7 @@ services:
     role: Consumes the orders topic from Kafka and writes ledger entries. Fully asynchronous.
     depends_on: [kafka]
     slo: { availability: "99%", freshness_lag_s: 60 }
-    key_metrics: [kafka_consumer_lag, messages_processed_total]
+    key_metrics: [kafka_consumer_group_lag_ratio, db_client_operation_duration_seconds]
     faults: []
 
   fraud-detection:
@@ -232,7 +230,7 @@ services:
     role: Consumes the orders topic and scores each order for fraud. Asynchronous, does not gate checkout.
     depends_on: [kafka]
     slo: { availability: "99%", freshness_lag_s: 120 }
-    key_metrics: [kafka_consumer_lag, orders_scored_total]
+    key_metrics: [kafka_consumer_group_lag_ratio, jvm_memory_used_bytes]
     faults: []
 
   kafka:
@@ -242,11 +240,11 @@ services:
     role: The order event bus. checkout produces to it; accounting and fraud-detection consume.
     depends_on: []
     slo: { availability: "99.9%", produce_latency_p95_ms: 100 }
-    key_metrics: [kafka_server_brokertopicmetrics_messagesin_total, kafka_consumergroup_lag]
+    key_metrics: [kafka_request_time_99p_milliseconds, kafka_message_count_total, kafka_request_failed_total]
     faults:
       - flag: kafkaQueueProblems
         effect: Broker is overloaded and consumers are given an added delay, so lag spikes.
-        signature: kafka_consumergroup_lag climbing for accounting and fraud-detection; checkout produce latency up; storefront unaffected.
+        signature: kafka_consumer_group_lag_ratio climbing for the accounting and fraud-detection groups; checkout produce latency up; storefront unaffected.
 
   valkey-cart:
     tier: 1
@@ -256,7 +254,7 @@ services:
     role: In-memory store behind cart. Redis wire protocol.
     depends_on: []
     slo: { availability: "99.95%", latency_p95_ms: 5 }
-    key_metrics: [redis_commands_processed_total, redis_memory_used_bytes]
+    key_metrics: [redis_memory_used_bytes, redis_commands_processed_total]
     faults: []
 
   astronomy-db:
@@ -267,7 +265,7 @@ services:
     role: Relational store behind product-catalog.
     depends_on: []
     slo: { availability: "99.9%", latency_p95_ms: 20 }
-    key_metrics: [pg_stat_database_xact_commit, pg_stat_activity_count]
+    key_metrics: [postgresql_backends, postgresql_commits_total]
     faults: []
 
   otel-collector:
@@ -277,7 +275,7 @@ services:
     role: Receives OTLP from every service, batches, and exports to Prometheus and Jaeger. Excluded from the health rollup by design.
     depends_on: []
     slo: { availability: "99.95%" }
-    key_metrics: [otelcol_receiver_accepted_spans, otelcol_exporter_send_failed_spans]
+    key_metrics: [otelcol_receiver_accepted_spans_total, otelcol_exporter_sent_spans_total]
     faults: []
 
   flagd:
@@ -287,5 +285,143 @@ services:
     role: Feature-flag daemon. Reads demo.flagd.json and serves flag evaluations. The fault-injection control plane.
     depends_on: []
     slo: { availability: "99.95%" }
-    key_metrics: [flagd_flag_evaluations_total]
+    key_metrics: [feature_flag_evaluation_requests_total]
     faults: []
+
+# ---------------------------------------------------------------------------- deployment
+#
+# How each service above actually runs under `make demo-up`, which layers compose.yaml +
+# compose.full.yaml + compose.observability.yaml + compose.extras.yaml (project name `astroshop`). Lifted from those files and app/otel-demo/.env; re-check them when upstream
+# is re-vendored. Kept separate from `services:` because it answers a different question
+# ("where does it listen, how is it health-checked, is it even running here") than the
+# operational model above ("who owns it, what does healthy mean").
+#
+# deployed: true      -> started by `make demo-up`
+#           false     -> defined upstream but not started here; `note` says why and what replaces it
+deployment:
+  frontend:        { deployed: true,  port: 8080,  protocol: HTTP, healthcheck: "TCP connect to :8080 (node one-liner)",       memory_limit: 250M }
+  frontend-proxy:  { deployed: true,  port: 8080,  protocol: HTTP, healthcheck: "TCP connect to :8080 (bash /dev/tcp)",        memory_limit: 90M,
+                     note: "The only business service published on a fixed host port: http://localhost:8080. Envoy admin on :10000." }
+  cart:            { deployed: true,  port: 7070,  protocol: gRPC, healthcheck: "grpc_health_probe on :7070",                  memory_limit: 160M,
+                     note: "Talks to the shared `redis` container on logical DB 1 (VALKEY_ADDR=redis:6379,defaultDatabase=1), not to valkey-cart." }
+  checkout:        { deployed: true,  port: 5050,  protocol: gRPC, healthcheck: "grpc_health_probe on :5050",                  memory_limit: 20M,
+                     note: "Produces every placed order to the Kafka `orders` topic (KAFKA_ADDR from compose.full.yaml); starts only once kafka is healthy." }
+  payment:         { deployed: true,  port: 50051, protocol: gRPC, healthcheck: "TCP connect to :50051 (node one-liner)",      memory_limit: 140M }
+  shipping:        { deployed: true,  port: 50050, protocol: HTTP, healthcheck: "/app/healthcheck binary",                     memory_limit: 20M }
+  currency:        { deployed: true,  port: 7001,  protocol: gRPC, healthcheck: "nc -z localhost 7001",                        memory_limit: 20M }
+  email:           { deployed: true,  port: 6060,  protocol: HTTP, healthcheck: "TCP connect to :6060 (ruby one-liner)",       memory_limit: 100M }
+  product-catalog: { deployed: true,  port: 3550,  protocol: gRPC, healthcheck: "grpc_health_probe on :3550",                  memory_limit: 20M,
+                     note: "Reads the `astronomy_db` database on the shared `postgres` container (POSTGRES_HOST=postgres), not astronomy-db." }
+  recommendation:  { deployed: true,  port: 9001,  protocol: gRPC, healthcheck: "nc -z localhost 9001",                        memory_limit: 500M,
+                     note: "Memory limit is deliberately high so the recommendationCacheFailure leak has room to show before an OOM kill." }
+  ad:              { deployed: true,  port: 9555,  protocol: gRPC, healthcheck: "TCP connect to :9555 (bash /dev/tcp)",        memory_limit: 300M,
+                     note: "Also exposes Prometheus-format JVM metrics on :9465, scraped by the collector every 10s." }
+  quote:           { deployed: true,  port: 8090,  protocol: HTTP, healthcheck: "TCP connect to :8090 (php fsockopen)",        memory_limit: 40M }
+  image-provider:  { deployed: true,  port: 8081,  protocol: HTTP, healthcheck: "wget spider on :8081",                        memory_limit: 120M }
+  accounting:      { deployed: true,  protocol: Kafka consumer, healthcheck: none, memory_limit: 160M,
+                     note: "From compose.full.yaml. No listening port; consumes `orders` and writes each order into astronomy_db on the shared postgres (joins the `infra` network for it)." }
+  fraud-detection: { deployed: true,  protocol: Kafka consumer, healthcheck: none, memory_limit: 300M,
+                     note: "From compose.full.yaml. No listening port; consumes `orders` and scores each one." }
+  kafka:           { deployed: true,  port: 9092,  protocol: Kafka, healthcheck: "nc -z kafka 9092", memory_limit: 620M,
+                     note: "From compose.full.yaml. Single KRaft broker (no ZooKeeper), heap fixed at 400MB, topic `orders`." }
+  valkey-cart:     { deployed: false, port: 6379,  protocol: Redis, memory_limit: 20M,
+                     note: "Disabled by compose.extras.yaml (profile disabled-by-sentinel-rag). Its role is played by the shared, always-on `redis` container, logical DB 1." }
+  astronomy-db:    { deployed: false, port: 5432,  protocol: PostgreSQL, memory_limit: 80M,
+                     note: "Disabled by compose.extras.yaml (profile disabled-by-sentinel-rag). Its role is played by the `astronomy_db` database inside the shared, always-on `postgres` container." }
+  otel-collector:  { deployed: true,  port: 4317,  protocol: OTLP gRPC (4317) and OTLP HTTP (4318), healthcheck: none, memory_limit: 400M }
+  flagd:           { deployed: true,  port: 8013,  protocol: gRPC flag evaluation (8013) and OFREP HTTP (8016), healthcheck: none, memory_limit: 75M }
+
+# ---------------------------------------------------------------------------- components
+#
+# Everything that runs alongside the business services but is not one: traffic, tooling, the
+# observability backends, Sentinel's own sidecars, and the shared infra layer. Not in
+# `services:` because none of them has an SLO, an owning product team or a customer — and
+# app/system-monitor/tree.yaml excludes most of them from the health rollup for the same reason.
+components:
+  load-generator:
+    category: traffic
+    runs_in: astroshop compose project (compose.yaml)
+    what: >
+      k6-based synthetic shopper traffic against frontend-proxy (K6_TARGET_URL=http://frontend-proxy:8080).
+      Browses, adds to cart and checks out continuously. On/off via the loadGeneratorTraffic flag,
+      concurrency via loadGeneratorVUs (5, 10, 25 or 50 virtual users; default 5). Memory limit 512M.
+    why_it_matters: >
+      Without it no request rates, error ratios or latencies exist to investigate. If it stops, every
+      rate graph drops to zero at once — that means "we stopped measuring", not "the platform is down".
+  flagd-ui:
+    category: tooling
+    runs_in: astroshop compose project (compose.yaml)
+    what: Web UI for flipping flagd feature flags by hand, served through the proxy at http://localhost:8080/feature. Edits the same demo.flagd.json that flagd watches.
+    why_it_matters: The manual equivalent of the incident-generator. A flag flipped here is a real fault that the incident log will not record.
+  telemetry-docs:
+    category: tooling
+    runs_in: astroshop compose project (compose.yaml)
+    what: Static documentation of the demo's telemetry schema, served through the proxy at /telemetry/.
+    why_it_matters: Leaf of the health tree under astroshop; its failure affects no customer path.
+  jaeger:
+    category: observability
+    runs_in: astroshop compose project (compose.observability.yaml)
+    what: >
+      Distributed-tracing backend (Jaeger v2). Receives traces from the collector over OTLP gRPC and
+      serves the trace UI. The UI's own port 16686 is published to a random host port, so the stable
+      address is through the proxy, http://localhost:8080/jaeger/ui/. Memory limit 1200M.
+    why_it_matters: Where "which span in this request errored or was slow" is answered. Sentinel's trace tools read it via settings.jaeger_url.
+  prometheus:
+    category: observability
+    runs_in: astroshop compose project (compose.observability.yaml)
+    what: >
+      Metrics backend, host port 9090. Metrics arrive pushed by the collector over OTLP
+      (/api/v1/otlp) rather than being scraped from each service; resource attributes such as
+      service.name are promoted to labels. Memory limit 200M.
+    why_it_matters: Where RED metrics live. Sentinel's PromQL tool reads it read-only via settings.prometheus_url.
+  grafana:
+    category: observability
+    runs_in: astroshop compose project (compose.observability.yaml)
+    what: Dashboards over Prometheus, Jaeger and OpenSearch, through the proxy at http://localhost:8080/grafana/. Memory limit 175M.
+    why_it_matters: The human-facing view of the same data Sentinel queries directly.
+  opensearch:
+    category: observability
+    runs_in: astroshop compose project (compose.observability.yaml)
+    what: Log store. The collector exports every service's OTLP logs to the otel-logs index. Memory limit 1G.
+    why_it_matters: Logs are stored but Sentinel's RCA agent deliberately does not read them (ADR-003) — metrics and traces only.
+  opamp-server:
+    category: observability
+    runs_in: astroshop compose project (compose.observability.yaml)
+    what: OpAMP (Open Agent Management Protocol) server the collector reports its effective config and health to.
+    why_it_matters: Remote management of the collector; not on any request path.
+  system-monitor:
+    category: sentinel-sidecar
+    runs_in: astroshop compose project (compose.extras.yaml), host port 8091
+    what: Computes a parent-to-child health rollup of the platform from Docker healthchecks plus real Redis/Postgres pings. See the system-monitor document.
+    why_it_matters: Source of "is the platform healthy right now" answers in the chat UI and the platform panel.
+  incident-generator:
+    category: sentinel-sidecar
+    runs_in: astroshop compose project (compose.extras.yaml), host port 8092
+    what: Triggers named fault scenarios by editing flagd's flag file and writes an incident log. See the incident-generator document.
+    why_it_matters: Source of ground truth for "what fault was injected, and when".
+  postgres:
+    category: shared-infra
+    runs_in: standalone always-on container (docker run, restart unless-stopped) on the `infra` network, host port 5432
+    what: >
+      pgvector/pgvector:pg16. Holds otel-demo's `astronomy_db` (owner astronomy_user, read by
+      product-catalog) and Sentinel's own `sentinel` database (owner sentinelapp: vectors, chat
+      sessions, checkpoints). Not managed by any compose project.
+    why_it_matters: Plays the astronomy-db role. If it is down, product-catalog cannot serve products, and Sentinel cannot retrieve.
+  redis:
+    category: shared-infra
+    runs_in: standalone always-on container (docker run, restart unless-stopped) on the `infra` network, host port 6379
+    what: >
+      redis:7-alpine, maxmemory 512mb, allkeys-lru, no volume. Logical DB 0 is Sentinel's cache
+      (keys prefixed sentinel:); logical DB 1 is otel-demo's cart storage. A third consumer should
+      claim DB 2.
+    why_it_matters: Plays the valkey-cart role. If it is down, cart fails and checkout fails with it.
+  portainer:
+    category: shared-infra
+    runs_in: standalone always-on container, not on the infra network
+    what: Docker GUI for seeing what is running and what is idle. Talks to Docker through the socket.
+    why_it_matters: Operator convenience only; nothing depends on it.
+  langfuse:
+    category: sentinel
+    runs_in: sentinel-rag compose project (`make up`), joins the infra network
+    what: LLM tracing for Sentinel itself (prompts, tool calls, token cost), stored in the shared postgres.
+    why_it_matters: Observes Sentinel, not Astroshop.

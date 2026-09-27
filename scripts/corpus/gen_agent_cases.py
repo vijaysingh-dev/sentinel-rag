@@ -32,9 +32,10 @@ Three shapes, one per `incident_type`:
 An agent that reads these and still names the wrong service (or the wrong *number* of services,
 for a compound case) is wrong for a reason worth surfacing, not because the fixture was ambiguous.
 
-This is the reproducible-fixture form of a recorded investigation. Real trajectory eval also
-captures live runs against a real incident and adds the interesting failures to the case set —
-`data/fixtures/` is where those would live too.
+This is the reproducible-fixture form of a recorded investigation. Its live counterpart is
+`capture_live_incident.py`, which records real tool output during a real injected incident into
+``data/fixtures/live/`` and ``data/agent_cases_live.jsonl``; `main()` appends those cases after the
+synthetic ones, so both are replayed by `make eval-agent`.
 """
 
 from __future__ import annotations
@@ -49,6 +50,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 TRUTH = Path(__file__).parent / "_incident_truth.jsonl"
 CASES_OUT = REPO_ROOT / "data" / "agent_cases.jsonl"
+# Captured from a running stack by capture_live_incident.py. Not regenerated here — a live capture
+# cannot be reproduced on demand — only folded in, so `make corpus` never discards one.
+LIVE_CASES = REPO_ROOT / "data" / "agent_cases_live.jsonl"
 FIXTURE_DIR = REPO_ROOT / "data" / "fixtures"
 
 # The tools a sound investigation of a flag-injected fault touches. knowledge to find the runbook,
@@ -485,9 +489,14 @@ def main() -> int:
             }
         )
 
+    synthetic = len(cases)
+    if LIVE_CASES.exists():
+        cases += [json.loads(line) for line in LIVE_CASES.read_text().splitlines() if line.strip()]
+
     CASES_OUT.write_text("\n".join(json.dumps(c) for c in cases) + "\n")
-    print(f"wrote {len(cases)} cases to {CASES_OUT.relative_to(REPO_ROOT)}")
-    print(f"wrote {len(cases)} fixtures to {FIXTURE_DIR.relative_to(REPO_ROOT)}/")
+    live = len(cases) - synthetic
+    print(f"wrote {len(cases)} cases to {CASES_OUT.relative_to(REPO_ROOT)} ({synthetic} synthetic, {live} live)")
+    print(f"wrote {synthetic} fixtures to {FIXTURE_DIR.relative_to(REPO_ROOT)}/")
     print("run: uv run python scripts/evaluation/02_evaluate_agent.py")
     return 0
 

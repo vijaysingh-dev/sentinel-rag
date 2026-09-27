@@ -44,6 +44,6 @@
   "must_contain": [
     "checkout",
     "checkout",
-    "sum(rate(rpc_server_duration_milliseconds_count"
+    "sum(rate(traces_span_metrics_calls_total"
   ]
 }

@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from sentinel.core.config import settings
 from sentinel.core.observability import estimate_cost, log, trace_config
 from sentinel.rca.guard import with_node_guard
 from sentinel.rca.state import Evidence, SentinelState
@@ -110,7 +110,8 @@ async def extract_evidence(messages: list, agent: str) -> tuple[list[Evidence], 
     result: ExtractionResult = await extractor.ainvoke(
         "Extract the verifiable findings from this investigation transcript. Every claim must "
         "cite the `ref` returned by the tool call that produced it, and include a verbatim "
-        "excerpt. Omit anything the tools did not actually show.\n\n" + transcript
+        "excerpt. Omit anything the tools did not actually show. Keep only the findings that "
+        "bear on the root cause — at most 6 claims, each excerpt under 300 characters.\n\n" + transcript
     )
 
     valid_refs = observed_refs(messages)
@@ -159,7 +160,12 @@ def make_specialist(name: str, agent_factory: Callable[[], Any], focus: str):
         )
         messages = result["messages"]
         evidence, summary = await extract_evidence(messages, agent=name)
-        tokens, usd = usage_of(messages, settings.embedding_model)
+        # Priced as the chat model that produced the transcript. This used to pass the *embedding*
+        # model's name, which is not in PRICING, so every run cost $0 and the max_usd_per_run
+        # guard in rca/guard.py could never trip.
+        from sentinel.core.registry import get_provider
+
+        tokens, usd = usage_of(messages, get_provider("llm").describe().get("chat", "local"))
 
         log.info(
             "specialist_done",

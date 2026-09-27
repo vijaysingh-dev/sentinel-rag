@@ -18,9 +18,9 @@ Two unrelated alerts fired within the same window: `kafka` (`kafkaQueueProblems`
 ## Timeline
 
 - 09:00 — `kafkaQueueProblems` set to its fault variant on `kafka`. No alert yet.
-- 09:02 — First alert: `kafka` signature matches `kafkaQueueProblems` — kafka_consumergroup_lag climbing for accounting and fraud-detection; checkout produce latency up; storefront unaffected.
+- 09:02 — First alert: `kafka` signature matches `kafkaQueueProblems` — kafka_consumer_group_lag_ratio climbing for the accounting and fraud-detection groups; checkout produce latency up; storefront unaffected.
 - 09:04 — `emailMemoryLeak` set to its fault variant on `email`, independently of the above.
-- 09:06 — Second alert: `email` signature matches `emailMemoryLeak` — email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort).
+- 09:06 — Second alert: `email` signature matches `emailMemoryLeak` — email container_memory_usage_total_bytes ramps linearly toward its 100M limit; OOM restarts; checkout unaffected (call is best-effort).
 - 09:09 — Responders initially treat this as one incident given the timing overlap.
 - 09:13 — flagd checked: both `kafkaQueueProblems` and `emailMemoryLeak` are active independently, set 4 minutes apart. Two incidents, tracked and resolved separately from this point.
 - 09:16 — `kafkaQueueProblems` reset. `kafka` recovers.
@@ -46,6 +46,6 @@ Two independent feature flags were active concurrently: `kafkaQueueProblems` on 
 ## Detection signatures
 
 ```
-kafka (kafkaQueueProblems): kafka_consumergroup_lag climbing for accounting and fraud-detection; checkout produce latency up; storefront unaffected.
-email (emailMemoryLeak): email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort).
+kafka (kafkaQueueProblems): kafka_consumer_group_lag_ratio climbing for the accounting and fraud-detection groups; checkout produce latency up; storefront unaffected.
+email (emailMemoryLeak): email container_memory_usage_total_bytes ramps linearly toward its 100M limit; OOM restarts; checkout unaffected (call is best-effort).
 ```

@@ -29,6 +29,7 @@ GENERATORS = [
     "gen_incidents",
     "gen_runbooks",
     "gen_architecture",
+    "gen_platform",
     "gen_adr",
     "gen_glossary",
     "gen_reference",
@@ -43,7 +44,7 @@ GENERATORS = [
 
 # doc_type dirs the generators own. --clean only ever touches these.
 GENERATED_DIRS = [
-    "runbook", "incident", "architecture", "adr", "glossary", "oncall", "reference", "restricted",
+    "runbook", "incident", "architecture", "platform", "adr", "glossary", "oncall", "reference", "restricted",
 ]
 
 

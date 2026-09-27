@@ -73,19 +73,55 @@ _DENY_PATTERNS = [
     ]
 ]
 
-_TOOL_HEALTH = re.compile(r"\b(status|health|healthy|up|down|running|alive)\b.*\b(system|platform|service)", re.I)
-_TOOL_HEALTH_REV = re.compile(r"\b(system|platform|service)\b.*\b(status|health|healthy|up|down|running)\b", re.I)
+# "unhealthy" needs listing on its own: `\bhealthy\b` never matches inside it, and a live-state
+# question that misses these two falls through to the (now much wider) RAG vocabulary below.
+_TOOL_HEALTH = re.compile(
+    r"\b(status|health|healthy|unhealthy|up|down|running|alive)\b.*\b(system(?![- ]?monitor)|platform|service)", re.I
+)
+_TOOL_HEALTH_REV = re.compile(
+    r"\b(system(?![- ]?monitor)|platform|services?)\b.*\b(status|health|healthy|unhealthy|up|down|running)\b", re.I
+)
 _TOOL_INCIDENT = re.compile(r"\b(incident|scenario)s?\b.*\b(running|active|triggered|status)\b", re.I)
 
+# A bare "why is/are" used to be enough on its own, which sent every design question ("why is
+# otel-collector left out of the health tree?") into a full ~150s investigation that then wrote
+# an RCA for an anomaly nobody reported. "Why" only means "investigate" next to a symptom word.
 _RCA_TRIGGER = re.compile(
-    r"(why is|why are|why.*(fail|error|down|slow|broken)|investigate|root.?cause|"
-    r"what('s| is) wrong with|check (why|if|whether)|is .*\b(down|failing|broken)\b)",
+    r"(why\b.*\b(fail|failing|error|erroring|down|slow|broken|degraded|unhealthy|timing out|spik)|"
+    r"investigate|root.?cause|what('s| is) wrong with|check (why|if|whether)|is .*\b(down|failing|broken)\b)",
     re.I,
 )
 
+# Questions *about* the platform, not about its current state: "can a service fail while the
+# monitor says healthy?", "how does the monitor compute health?", "what happens if postgres goes
+# down?". They contain the same status and symptom words as live questions, so without this
+# they reached the health tool or an investigation instead of the documentation that answers them.
+_CONCEPTUAL = re.compile(
+    r"^\s*(can|could|would|should|how (does|do|is|are) .*\b(work|computed?|decided?|set up|configured)\b|"
+    r"what happens|explain|describe|tell me about|what('s| is) the difference)",
+    re.I,
+)
+
+# Informational phrasing ("how do I query the error ratio for checkout?") names a service and a
+# symptom word but asks for knowledge, not an investigation; checked before the service+signal
+# inference at the bottom of the rule pass.
+_INFORMATIONAL = re.compile(
+    r"^\s*(how (do|can|should) (i|we|you)|how to|what (is|are|does|do)|which|where|who|when)\b", re.I
+)
+
+# Platform-reference vocabulary ("what services exist", "which port is cart on", "how is tracing
+# set up") sits here alongside the runbook/ADR terms: before knowledge/platform/ existed these
+# fell through to the LLM fallback, which read an inventory question with no service name in it
+# as off-topic and refused. Only reached after the tool and RCA rules above, so "is the platform
+# down" and "why is the payment service failing" still route to health / RCA, not here.
 _RAG_VOCAB = re.compile(
     r"\b(runbook|architecture|glossary|adr|postmortem|post-mortem|slo|capacity|otel|astroshop|"
-    r"depends on|dependency|dependencies|how does|what does)\b",
+    r"depends on|dependency|dependencies|how does|what does|"
+    r"services?|platform|components?|infra(structure)?|deploy(ment|ed)?|docker|compose|ports?|"
+    r"tracing|traces?|metrics|logs|telemetry|jaeger|prometheus|grafana|opensearch|collector|"
+    r"flagd|feature flags?|flags?|faults?|failure modes?|incident.?generator|system.?monitor|"
+    r"health tree|rollup|load.?generator|kafka|postgres|redis|valkey|scenarios?|"
+    r"how many|which team|who owns|what language)\b",
     re.I,
 )
 
@@ -118,9 +154,11 @@ def _find_service(text: str) -> str | None:
 
 
 def _find_signal(text: str) -> Literal["latency_p95", "error_ratio"] | None:
-    if re.search(r"\b(slow|latency|latenc|delay|p95|p99)\b", text, re.I):
+    # Stems, not whole words: "errors", "failures", "slower", "delays" are how people actually type
+    # a symptom, and `\berror\b` never matched the plural.
+    if re.search(r"\b(slow\w*|latency|latenc\w*|delay\w*|p95|p99|timing out|timeouts?)\b", text, re.I):
         return "latency_p95"
-    if re.search(r"\b(fail|error|down|erroring|5xx|exception)\b", text, re.I):
+    if re.search(r"\b(fail\w*|errors?|erroring|down|5xx|exceptions?)\b", text, re.I):
         return "error_ratio"
     return None
 
@@ -131,6 +169,9 @@ def _rule_pass(text: str) -> RouteDecision | None:
     # can't tell "write a python script" from "what's the postmortem story on the python service".
     if any(p.search(text) for p in _DENY_PATTERNS):
         return RouteDecision(Route.REFUSE, 1.0, reason="deny_list")
+
+    if _CONCEPTUAL.search(text):
+        return RouteDecision(Route.RAG, 1.0, reason="rule:conceptual")
 
     if _TOOL_INCIDENT.search(text):
         return RouteDecision(Route.TOOL_CALL, 1.0, tool_target=ToolTarget.INCIDENT_STATUS, reason="rule:incident")
@@ -150,14 +191,18 @@ def _rule_pass(text: str) -> RouteDecision | None:
             reason="rule:rca_no_service",
         )
 
-    if _RAG_VOCAB.search(text):
-        return RouteDecision(Route.RAG, 1.0, reason="rule:rag_vocab")
+    if _INFORMATIONAL.search(text):
+        return RouteDecision(Route.RAG, 1.0, reason="rule:informational")
 
+    # A statement naming a service and a symptom ("checkout traces show errors") is a report of a
+    # live problem. It is checked before the documentation vocabulary because that vocabulary now
+    # includes platform nouns (kafka, redis, traces) that also appear in symptom reports.
     service = _find_service(text)
-    if service:
-        signal = _find_signal(text)
-        if signal:
-            return RouteDecision(Route.RCA, 1.0, inferred_service=service, inferred_signal=signal, reason="rule:rca")
+    signal = _find_signal(text)
+    if service and signal:
+        return RouteDecision(Route.RCA, 1.0, inferred_service=service, inferred_signal=signal, reason="rule:rca")
+
+    if _RAG_VOCAB.search(text) or service:
         return RouteDecision(Route.RAG, 1.0, reason="rule:rag_vocab")
 
     return None

@@ -149,7 +149,7 @@ class PgVectorStore(BaseVectorStore):
             f"ON CONFLICT (chunk_id) DO UPDATE SET {updates}"
         )
 
-        rows = [{**rec, "embedding": str(emb.vector)} for rec, emb in zip(records, embedded)]
+        rows = [{**rec, "embedding": str(emb.vector)} for rec, emb in zip(records, embedded, strict=True)]
         with self._pool.connection() as conn, conn.cursor() as cur:
             cur.executemany(sql, rows)
         log.info("upserted", provider=self.name, count=len(rows))

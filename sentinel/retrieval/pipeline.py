@@ -62,6 +62,16 @@ class RetrievalResult:
     meta: dict[str, Any] = field(default_factory=dict)
 
     @property
+    def degraded(self) -> bool:
+        """True when a fallback path produced these results.
+
+        `cache` is not degraded: only `full` results are ever written to the cache, so a hit is a
+        replay of a full-quality retrieval. Callers used to test `mode != "full"` and so warned the
+        model that every cached answer was lower quality than it was.
+        """
+        return self.mode not in ("full", "cache")
+
+    @property
     def context(self) -> str:
         """Renders retrieved chunks for a prompt, with citation handles."""
         return "\n\n---\n\n".join(
@@ -148,7 +158,7 @@ class RetrievalPipeline:
         # leak. This assertion should never fire.
         self._assert_authorized(candidates, roles, components or [])
 
-        results, timings = self._rank(query, candidates, top_n, mode, timings)
+        results, mode, timings = self._rank(query, candidates, top_n, mode, timings)
 
         results = dedupe_by_parent(dedupe_by_content(results))
 
@@ -228,11 +238,11 @@ class RetrievalPipeline:
 
     def _rank(
         self, query: str, candidates: list[RetrievedChunk], top_n: int, mode: str, timings: dict[str, float]
-    ) -> tuple[list[RetrievedChunk], dict[str, float]]:
+    ) -> tuple[list[RetrievedChunk], str, dict[str, float]]:
         reranker = self.reranker
         if reranker is None:
             DEGRADED_MODE.labels("retrieval", "no_rerank").inc()
-            return candidates[:top_n], timings
+            return candidates[:top_n], mode, timings
 
         started = time.perf_counter()
         try:
@@ -240,9 +250,11 @@ class RetrievalPipeline:
         except Exception as exc:
             DEGRADED_MODE.labels("retrieval", "rerank_failed").inc()
             log.warning("rerank_failed", error=str(exc)[:200])
-            return candidates[:top_n], timings
+            # Reported in `mode`, not only in a metric: left as "full", these unranked candidates
+            # reached the model unflagged and were then cached as if they were a full result.
+            return candidates[:top_n], "rerank_failed", timings
         timings["rerank"] = (time.perf_counter() - started) * 1000
-        return results, timings
+        return results, mode, timings
 
     @staticmethod
     def _assert_authorized(results: list[RetrievedChunk], roles: list[str], components: list[str]) -> None:

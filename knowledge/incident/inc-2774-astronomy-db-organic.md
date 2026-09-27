@@ -18,7 +18,7 @@ Degradation on astronomy-db, product-catalog, checkout, frontend, recommendation
 
 - 12:00 — First alert: `product-catalog` duration_p95 crosses its page threshold.
 - 12:03 — On-call queries flagd: no fault flag active anywhere on the platform. Investigation continues past the usual first check.
-- 12:08 — Trace inspection points at `astronomy-db`: pg_stat_activity_count pinned at the configured max; product-catalog duration_p95 up; astronomy-db itself shows no errors, only saturation.
+- 12:08 — Trace inspection points at `astronomy-db`: postgresql_backends pinned at postgresql_connection_max; product-catalog duration_p95 up; astronomy-db itself shows no errors, only saturation.
 - 12:14 — platform-eng confirms: product-catalog's connection pool to astronomy-db was sized for steady-state traffic; a routine traffic ramp from the load generator exceeded it, and requests queued for a free connection instead of failing fast.
 - 12:18 — Mitigation applied: Raised the pool size and added a queue-wait timeout so callers fail fast instead of queuing indefinitely. No flag to reset — this was capacity, not injection.
 - 12:25 — `product-catalog` metrics back at baseline for 3 minutes. Incident closed.
@@ -43,5 +43,5 @@ product-catalog's connection pool to astronomy-db was sized for steady-state tra
 ## Detection signature
 
 ```
-pg_stat_activity_count pinned at the configured max; product-catalog duration_p95 up; astronomy-db itself shows no errors, only saturation.
+postgresql_backends pinned at postgresql_connection_max; product-catalog duration_p95 up; astronomy-db itself shows no errors, only saturation.
 ```

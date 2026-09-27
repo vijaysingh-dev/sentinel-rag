@@ -5,7 +5,7 @@
       "title": "Past incident: astronomy-db \u2014 no fault flag",
       "doc_type": "incident",
       "score": 0.71,
-      "text": "product-catalog's connection pool to astronomy-db was sized for steady-state traffic; a routine traffic ramp from the load generator exceeded it, and requests queued for a free connection instead of failing fast. No fault flag was active. Signature: pg_stat_activity_count pinned at the configured max; product-catalog duration_p95 up; astronomy-db itself shows no errors, only saturation."
+      "text": "product-catalog's connection pool to astronomy-db was sized for steady-state traffic; a routine traffic ramp from the load generator exceeded it, and requests queued for a free connection instead of failing fast. No fault flag was active. Signature: postgresql_backends pinned at postgresql_connection_max; product-catalog duration_p95 up; astronomy-db itself shows no errors, only saturation."
     }
   ],
   "query_prometheus": {
@@ -65,7 +65,7 @@
           "share_of_trace": 0.84
         },
         "error_spans": [],
-        "note": "pg_stat_activity_count pinned at the configured max; product-catalog duration_p95 up; astronomy-db itself shows no errors, only saturation."
+        "note": "postgresql_backends pinned at postgresql_connection_max; product-catalog duration_p95 up; astronomy-db itself shows no errors, only saturation."
       }
     ],
     "instruction": "Cite trace:<id> for any claim about a specific span."

@@ -18,13 +18,17 @@ Returns "you may also like" products. Calls product-catalog. Has an in-process c
 Grafana: the `recommendation` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="recommendation", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="recommendation"}[5m]))
-# rpc_server_duration_milliseconds p95
-histogram_quantile(0.95, sum by (le) (rate(rpc_server_duration_milliseconds_bucket{service_name="recommendation"}[5m])))
-# app_recommendations_cache_hit_ratio
-app_recommendations_cache_hit_ratio{service_name="recommendation"}
+# error ratio (span metrics)
+sum(rate(traces_span_metrics_calls_total{service_name="recommendation", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+  / sum(rate(traces_span_metrics_calls_total{service_name="recommendation", span_kind="SPAN_KIND_SERVER"}[5m]))
+# p95 duration, ms (span metrics)
+histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name="recommendation", span_kind="SPAN_KIND_SERVER"}[5m])))
+# demo_recommendation_requests_recommendations_total rate
+sum(rate(demo_recommendation_requests_recommendations_total{service_name="recommendation"}[5m]))
+# process_memory_usage_bytes
+process_memory_usage_bytes{service_name="recommendation"}
+# process_cpu_utilization_ratio
+process_cpu_utilization_ratio{service_name="recommendation"}
 ```
 
 In Jaeger, filter to `service = recommendation` and sort by duration for the latency case, or add `error = true` for the error case.
@@ -32,7 +36,7 @@ In Jaeger, filter to `service = recommendation` and sort by duration for the lat
 ## Diagnose
 
 1. **Rule out upstream first.** `recommendation` calls `product-catalog`. Check each one's error and latency panels for the same window. If an upstream is unhealthy, work that runbook instead — a healthy `recommendation` failing every call to a sick dependency is not a `recommendation` incident.
-2. Pull the RED panels for `recommendation`: `rpc_server_duration_milliseconds`, `app_recommendations_cache_hit_ratio`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+2. Pull the RED panels for `recommendation`: `demo_recommendation_requests_recommendations_total`, `process_memory_usage_bytes`, `process_cpu_utilization_ratio`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 3. Open a trace for a failing `recommendation` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 4. Check whether a fault flag is active. `recommendation` has injectable faults; a flag flip is by far the most common cause in this environment. Query flagd for the flags below and compare the timestamp to when the alert started.
 
@@ -42,9 +46,9 @@ In Jaeger, filter to `service = recommendation` and sort by duration for the lat
 
 **Effect.** The cache never hits, so every request fans out to product-catalog; memory also grows unbounded.
 
-**Signature.** recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing.
+**Signature.** product-catalog request_rate up sharply (every recommendation fans out); recommendation process_memory_usage_bytes climbing.
 
-**Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `rpc_server_duration_milliseconds` returns to baseline before closing.
+**Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `demo_recommendation_requests_recommendations_total` returns to baseline before closing.
 
 ## Mitigate
 
@@ -58,7 +62,7 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 
 ## After the incident
 
-- Confirm `rpc_server_duration_milliseconds` and the error ratio have held at baseline for 15 minutes.
+- Confirm `demo_recommendation_requests_recommendations_total` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.
 

@@ -5,7 +5,7 @@
       "title": "ad runbook > Known failure modes > adHighCpu",
       "doc_type": "runbook",
       "score": 0.82,
-      "text": "adHighCpu. Effect: fault injected. Signature: ad process_cpu_utilization saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
+      "text": "adHighCpu. Effect: fault injected. Signature: ad jvm_cpu_recent_utilization_ratio saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
     },
     {
       "ref": "doc:incident-ad",

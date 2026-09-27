@@ -14,15 +14,15 @@ Every claim here is backed by code in `sentinel/` and by a runnable script in `s
 |---|---|---|---|---|
 | 1. Parsing | [`stages/parsing.md`](stages/parsing.md) | `parsing/` | `scripts/parsing/` | `benchmarks/parser_bakeoff.py` |
 | 2. Chunking | [`stages/chunking.md`](stages/chunking.md) | `chunking/` | — | `benchmarks/chunking_sweep.py` |
-| 3. Embedding | _(pending)_ | `embedding/` | `scripts/embedding/` | `benchmarks/embedding_bakeoff.py` |
-| 4. Vector store | _(pending)_ | `vectorstore/` | `scripts/vectorstore/` | — |
-| 5. Retrieval | _(pending)_ | `retrieval/` | `scripts/vectorstore/01_*` | `benchmarks/retrieval_sweep.py` |
-| 6. Reranking | _(pending)_ | `reranking/` | `scripts/reranking/` | `benchmarks/retrieval_sweep.py` |
-| 7. Generation | _(pending)_ | `generation/` | `scripts/llm/` | — |
-| 8. Evaluation | _(pending)_ | `evaluation/` | `scripts/evaluation/` | all |
-| 9. Agent layer | _(pending)_ | `rca/` | `make chat-server` | `tests/test_trajectory.py` |
+| 3. Embedding | [`stages/embedding.md`](stages/embedding.md) | `embedding/` | `scripts/embedding/` | `benchmarks/embedding_bakeoff.py` |
+| 4. Vector store | [`stages/vectorstore.md`](stages/vectorstore.md) | `vectorstore/` | `scripts/vectorstore/` | — |
+| 5. Retrieval | [`stages/retrieval.md`](stages/retrieval.md) | `retrieval/` | `scripts/vectorstore/01_*` | `benchmarks/retrieval_sweep.py` |
+| 6. Reranking | [`stages/reranking.md`](stages/reranking.md) | `reranking/` | `scripts/reranking/` | `benchmarks/retrieval_sweep.py` |
+| 7. Generation | [`stages/generation.md`](stages/generation.md) | `generation/` | `scripts/llm/` | — |
+| 8. Evaluation | [`stages/evaluation.md`](stages/evaluation.md) | `evaluation/` | `scripts/evaluation/` | all |
+| 9. Agent layer | [`stages/agent.md`](stages/agent.md) | `rca/` | `make chat-server` | `tests/test_trajectory.py` |
 
-Each stage gets its own `docs/stages/<stage>.md` as it is worked through; the _(pending)_ rows have their summary here only, for now.
+Every stage now has its own `docs/stages/<stage>.md`.
 
 ---
 
@@ -139,6 +139,8 @@ Read the `chunks/doc` column alongside recall. More chunks is not better: it inf
 
 ## 3. Embedding
 
+**→ Full detail: [`stages/embedding.md`](stages/embedding.md)**
+
 ### What we used
 
 | Provider | Model | Dims | Notes |
@@ -186,6 +188,8 @@ Two things worth noticing. Truncating 3072 → 1024 costs about a point of recal
 
 ## 4. Vector store
 
+**→ Full detail: [`stages/vectorstore.md`](stages/vectorstore.md)**
+
 ### What we used
 
 | Provider | Backend | Hybrid |
@@ -214,6 +218,8 @@ Hybrid search needs no second system either: Postgres has full-text search built
 ---
 
 ## 5. Retrieval
+
+**→ Full detail: [`stages/retrieval.md`](stages/retrieval.md)**
 
 ### What we used
 
@@ -295,6 +301,8 @@ The knee in candidate depth is around k=50; beyond it, extra candidates cost rer
 
 ## 6. Reranking
 
+**→ Full detail: [`stages/reranking.md`](stages/reranking.md)**
+
 ### What we used
 
 | Provider | Model | Score scale | Floor |
@@ -338,6 +346,8 @@ Floors are **per reranker and never portable**, because the score scales are unr
 
 ## 7. Generation
 
+**→ Full detail: [`stages/generation.md`](stages/generation.md)**
+
 ### What we used
 
 Every adapter exposes three handles, because a production pipeline never uses one model:
@@ -380,6 +390,8 @@ Small local models are noticeably weaker at **tool calling** and structured outp
 ---
 
 ## 8. Evaluation
+
+**→ Full detail: [`stages/evaluation.md`](stages/evaluation.md)**
 
 ### What we used
 
@@ -442,6 +454,8 @@ The strongest signal is free: the analyst's approve / edit / reject decision on 
 ---
 
 ## 9. Agent layer
+
+**→ Full detail: [`stages/agent.md`](stages/agent.md)**
 
 ### What we used
 

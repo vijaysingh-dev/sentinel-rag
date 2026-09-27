@@ -87,12 +87,14 @@ def _build_deck(p: Platform) -> str:
         [
             "Browser -> frontend-proxy (Envoy) -> frontend (Next.js)",
             "frontend fans out to: " + ", ".join(sorted(p.services["frontend"].depends_on)),
-            "Checkout is synchronous: cart -> currency -> product-catalog -> shipping -> payment -> email",
+            "Checkout order: cart -> product-catalog + currency -> shipping quote -> payment -> ship -> email -> kafka",
             f"Tier-0 (customer-critical): {', '.join(sorted(critical))}",
         ],
         """
-        The single most important fact for triage: checkout calls its six dependencies in order,
-        synchronously, and the first one that fails or hangs fails the order. So an alert on
+        The single most important fact for triage: checkout calls its dependencies in a fixed
+        order (get the cart, price each item via product-catalog and currency, quote shipping,
+        charge payment, book shipping), synchronously, and the first one that fails or hangs
+        fails the order. So an alert on
         checkout almost never means checkout is broken — it means one of cart, currency,
         product-catalog, shipping, payment or email is, and checkout is the first place the
         symptom is visible. The RCA agent's job is to skip the wasted minutes spent looking at

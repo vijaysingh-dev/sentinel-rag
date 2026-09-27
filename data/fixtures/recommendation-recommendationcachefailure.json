@@ -5,7 +5,7 @@
       "title": "recommendation runbook > Known failure modes > recommendationCacheFailure",
       "doc_type": "runbook",
       "score": 0.82,
-      "text": "recommendationCacheFailure. Effect: fault injected. Signature: recommendation cache_hit_ratio -> 0; product-catalog request_rate up sharply; recommendation RSS climbing. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
+      "text": "recommendationCacheFailure. Effect: fault injected. Signature: product-catalog request_rate up sharply (every recommendation fans out); recommendation process_memory_usage_bytes climbing. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
     },
     {
       "ref": "doc:incident-recommendation",

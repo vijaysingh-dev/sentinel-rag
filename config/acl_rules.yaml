@@ -30,6 +30,13 @@ rules:
       doc_type: architecture
     allowed_roles: [admin, sre, oncall, viewer]
 
+  # The platform reference (knowledge/platform/): what services exist, ports, compose layout,
+  # failure modes, the sidecars. Same audience as architecture — none of it is sensitive, and
+  # "what services exist?" is the first question any role asks.
+  - match:
+      doc_type: platform
+    allowed_roles: [admin, sre, oncall, viewer]
+
   # ADRs explain why the platform is built the way it is. Readable by anyone on a pager; not by a
   # read-only viewer, because a few reference internal failure history.
   - match:

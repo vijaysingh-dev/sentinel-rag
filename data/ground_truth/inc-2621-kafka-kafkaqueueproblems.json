@@ -26,6 +26,6 @@
   "must_contain": [
     "kafkaQueueProblems",
     "kafka",
-    "kafka_consumergroup_lag climbing for accounting and fraud-detection"
+    "kafka_consumer_group_lag_ratio climbing for the accounting and fraud-detection groups"
   ]
 }

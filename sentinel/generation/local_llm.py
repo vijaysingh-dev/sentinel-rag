@@ -16,7 +16,7 @@ from functools import cached_property
 from typing import Any
 
 from sentinel.core.config import settings
-from sentinel.generation.base import BaseLLM
+from sentinel.generation.base import CHEAP_MAX_TOKENS, BaseLLM
 
 
 class LocalLLM(BaseLLM):
@@ -46,7 +46,7 @@ class LocalLLM(BaseLLM):
 
     @cached_property
     def cheap(self) -> Any:
-        return self._build(settings.local_llm_cheap_model, 800)
+        return self._build(settings.local_llm_cheap_model, CHEAP_MAX_TOKENS)
 
     def describe(self) -> dict[str, Any]:
         return {

@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from _model import KNOWLEDGE, Platform, Service, load, rel, write
-from _promql import error_ratio, query_for
+from _promql import error_ratio, latency_p95, query_for
 
 # Written by gen_incidents.py: {service: [ {id, title, date, cause}, ... ] }. Absent on a first
 # run before incidents exist — the runbook just omits the cross-reference section then.
@@ -97,8 +97,14 @@ def _body(p: Platform, svc: Service) -> str:
     )
     lines.append("")
     lines.append("```promql")
-    lines.append("# error ratio")
-    lines.append(error_ratio(svc.name))
+    ratio, p95 = error_ratio(svc.name), latency_p95(svc.name)
+    if ratio and p95:
+        lines.append("# error ratio (span metrics)")
+        lines.append(ratio)
+        lines.append("# p95 duration, ms (span metrics)")
+        lines.append(p95)
+    else:
+        lines.append(f"# {svc.name} emits no spans, so there is no span-metrics error ratio; use the signals below")
     for m in svc.key_metrics:
         label, q = query_for(m, svc.name)
         lines.append(f"# {label}")
@@ -182,9 +188,10 @@ def _body(p: Platform, svc: Service) -> str:
     )
     if svc.name == "cart":
         lines.append(
-            "3. **If the process is wedged** (latency flat-lined, no logs), delete the pod by hand. "
-            "`cart` has no container healthcheck, so the orchestrator will not restart it on a "
-            "hang — only on a clean process exit."
+            "3. **If the process is wedged** (latency flat-lined, no logs), restart it by hand with "
+            "`docker restart cart`. `cart`'s `grpc_health_probe` healthcheck will mark a hung "
+            "process unhealthy (red in system-monitor), but nothing restarts it: Docker never "
+            "restarts a container for failing its healthcheck, and the restart policy is `no`."
         )
     elif "memory" in " ".join(f.flag for f in svc.faults).lower() or svc.name in {"email", "recommendation"}:
         lines.append(

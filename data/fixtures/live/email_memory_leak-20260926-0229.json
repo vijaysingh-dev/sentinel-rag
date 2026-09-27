@@ -1,0 +1,564 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:25c824919100b9e4::0007::97a80cec4979c8d3",
+      "title": "INC-2691: shipping elevated latency > Action items",
+      "doc_type": "incident",
+      "effective_date": "2026-09-26",
+      "score": 4.4003,
+      "text": "[inc 2691 shipping intlshippingslowdown > INC-2691: shipping elevated latency > Action items]\n1. Add a Grafana annotation and a low-urgency alert on `flagd_flag_evaluations_total` deltas, so a flag flip is visible on every dashboard. *(owner: platform-eng)*\n2. Add \"check the dependency graph before the service that paged\" as step 1 of the `checkout` runbook. *(owner: checkout)* \u2014 done, see `knowledge/runbook/checkout.md`.\n3. Confirm the `shipping` runbook's known-failure-modes section lists `intlShippingSlowdown` with this signature. *(owner: checkout)*"
+    },
+    {
+      "ref": "doc:e2f0b141410f1946::0001::808f890ea039a90e",
+      "title": "knowledge/runbook/checkout.docx",
+      "doc_type": "runbook",
+      "effective_date": "2026-09-26",
+      "score": 3.2614,
+      "text": "# checkout runbook\n\nThe synchronous order pipeline. Calls cart, currency, product-catalog, shipping, payment, then email, in order. Implemented in Go. Owned by the checkout team (PD-CHECKOUT, #astroshop-checkout).\n\n## When this fires\n\ncheckout is on the customer-facing critical path. A failure here surfaces on frontend, frontend-proxy as elevated errors or latency, often before a checkout alert fires. If you were paged for one of those and the cause is not obvious there, check checkout early.\n\n## Thresholds\n\n| Signal | Objective | Page at |\n| --- | --- | --- |\n| Availability (28d) | 99.5% | error budget 50% burned in 1h |\n| Duration p95 | < 1200 ms | > 1800 ms for 5m |\n| Duration p99 | < 2500 ms | > 3750 ms for 5m |\n\n## Dashboards and queries\n\nGrafana: the checkout row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:\n\npromql\n\n# error ratio (span metrics)\n\nsum(rate(traces_span_metrics_calls_total{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[5m]))\n\n/ sum(rate(traces_span_metrics_calls_total{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))\n\n# p95 duration, ms (span metrics)\n\nhistogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))\n\n# rpc_server_call_duration_seconds p95\n\nhistogram_quantile(0.95, sum by (le) (rate(rpc_server_call_duration_seconds_bucket{service_name=\"checkout\"}"
+    },
+    {
+      "ref": "doc:5cea1250b8e7b517::0000::e0a4d9db047c5eb5",
+      "title": "knowledge/runbook/email.md",
+      "doc_type": "runbook",
+      "effective_date": "2026-09-26",
+      "score": 3.0777,
+      "text": "# email runbook\n\nSends the order-confirmation email. Called by checkout after the order is committed, best-effort. Implemented in Ruby. Owned by the checkout team (PD-CHECKOUT, #astroshop-checkout).\n\n## When this fires\n\n`email` is on the customer-facing critical path. A failure here surfaces on `checkout`, `frontend`, `frontend-proxy` as elevated errors or latency, often before a `email` alert fires. If you were paged for one of those and the cause is not obvious there, check `email` early.\n\n## Thresholds\n\n| Signal | Objective | Page at |\n| --- | --- | --- |\n| Availability (28d) | 99% | error budget 50% burned in 1h |\n| Duration p95 | < 1000 ms | > 1500 ms for 5m |\n\n## Dashboards and queries\n\nGrafana: the `email` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:\n\n# error ratio (span metrics)\nsum(rate(traces_span_metrics_calls_total{service_name=\"email\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[5m]))\n  / sum(rate(traces_span_metrics_calls_total{service_name=\"email\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))\n# p95 duration, ms (span metrics)\nhistogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"email\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))\n# demo_notification_confirmations_total rate\nsum(rate(demo_notification_confirmations_total{service_name=\"email\"}[5m]))\n# container_memory_usage_total_bytes\ncontainer_memory_usage_total_bytes{container_name=\"email\"}\n\nIn "
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:6df2ff4013ca",
+    "expr": "sum by (container_name) (container_memory_usage_total_bytes)",
+    "window_minutes": 15,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "container_name": "accounting"
+          },
+          "first": 64729088.0,
+          "last": 50335744.0,
+          "min": 50335744.0,
+          "max": 65212416.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "ad"
+          },
+          "first": 167526400.0,
+          "last": 146722816.0,
+          "min": 146722816.0,
+          "max": 168689664.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "cart"
+          },
+          "first": 74960896.0,
+          "last": 60645376.0,
+          "min": 51392512.0,
+          "max": 74960896.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "checkout"
+          },
+          "first": 13709312.0,
+          "last": 7667712.0,
+          "min": 7053312.0,
+          "max": 13864960.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "currency"
+          },
+          "first": 8167424.0,
+          "last": 12378112.0,
+          "min": 8163328.0,
+          "max": 12378112.0,
+          "direction": "rising",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "email"
+          },
+          "first": 91611136.0,
+          "last": 65716224.0,
+          "min": 65716224.0,
+          "max": 91766784.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "flagd"
+          },
+          "first": 65314816.0,
+          "last": 57622528.0,
+          "min": 57622528.0,
+          "max": 65314816.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "flagd-ui"
+          },
+          "first": 16670720.0,
+          "last": 16646144.0,
+          "min": 16396288.0,
+          "max": 17223680.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "fraud-detection"
+          },
+          "first": 225234944.0,
+          "last": 184709120.0,
+          "min": 184709120.0,
+          "max": 225595392.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "frontend"
+          },
+          "first": 114466816.0,
+          "last": 105385984.0,
+          "min": 105385984.0,
+          "max": 115646464.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "frontend-proxy"
+          },
+          "first": 21094400.0,
+          "last": 18137088.0,
+          "min": 18137088.0,
+          "max": 24289280.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "grafana"
+          },
+          "first": 179425280.0,
+          "last": 110706688.0,
+          "min": 110706688.0,
+          "max": 183451648.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "image-provider"
+          },
+          "first": 4157440.0,
+          "last": 4202496.0,
+          "min": 4157440.0,
+          "max": 4202496.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "incident-generator"
+          },
+          "first": 13778944.0,
+          "last": 13463552.0,
+          "min": 13266944.0,
+          "max": 14004224.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "jaeger"
+          },
+          "first": 383528960.0,
+          "last": 354988032.0,
+          "min": 354988032.0,
+          "max": 383639552.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "kafka"
+          },
+          "first": 466767872.0,
+          "last": 219377664.0,
+          "min": 219377664.0,
+          "max": 466767872.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "load-generator"
+          },
+          "first": 335253504.0,
+          "last": 536698880.0,
+          "min": 326574080.0,
+          "max": 536698880.0,
+          "direction": "rising",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "opamp-server"
+          },
+          "first": 15912960.0,
+          "last": 12652544.0,
+          "min": 12541952.0,
+          "max": 15921152.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "opensearch"
+          },
+          "first": 935858176.0,
+          "last": 911626240.0,
+          "min": 911626240.0,
+          "max": 935858176.0,
+          "direction": "flat",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        },
+        {
+          "labels": {
+            "container_name": "otel-collector"
+          },
+          "first": 107368448.0,
+          "last": 80351232.0,
+          "min": 80351232.0,
+          "max": 107368448.0,
+          "direction": "falling",
+          "from": "2026-09-26T03:12:06.728000+00:00",
+          "to": "2026-09-26T03:13:36.728000+00:00",
+          "points": 4
+        }
+      ],
+      "series_count": 31
+    }
+  },
+  "find_traces": {
+    "ref": "trace:114c64b4050e",
+    "service": "checkout",
+    "count": 5,
+    "traces": [
+      {
+        "trace_id": "e63cd59df1e14abb47ab60cebc75712a",
+        "found": true,
+        "duration_ms": 3122503.2,
+        "span_count": 92,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 361.9,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "5362c579adefe4e4f59ada307ee7944d",
+        "found": true,
+        "duration_ms": 3122419.8,
+        "span_count": 70,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 694.4,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "f61cb72ff72326632ff67f9ed4fedc08",
+        "found": true,
+        "duration_ms": 3122312.1,
+        "span_count": 160,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "load-generator",
+          "operation": "user_add_to_cart",
+          "duration_ms": 251.8,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "2a450d27dd9005db317d3cc2c6e8ab09",
+        "found": true,
+        "duration_ms": 3122304.3,
+        "span_count": 152,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 221.7,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "754eef6843eeb5c5ccb35c58a8ff0d05",
+        "found": true,
+        "duration_ms": 3122278.5,
+        "span_count": 70,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 206.8,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span.",
+    "tenant": "default"
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "emailMemoryLeak",
+          "current_variant": "1000x",
+          "resting_variant": "off",
+          "active": true,
+          "value": 1000
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:1h",
+    "count": 7,
+    "changes": [
+      {
+        "ts": "2026-09-26T02:14:03.496824+00:00",
+        "flag": "intlShippingSlowdown",
+        "event": "incident_start",
+        "variant": "10sec",
+        "note": "latency injection, not a hard failure \u2014 healthchecks may stay green while checkout gets slow"
+      },
+      {
+        "ts": "2026-09-26T02:17:23.498327+00:00",
+        "flag": "intlShippingSlowdown",
+        "event": "incident_end",
+        "variant": "10sec",
+        "note": "latency injection, not a hard failure \u2014 healthchecks may stay green while checkout gets slow"
+      },
+      {
+        "ts": "2026-09-26T02:17:24.774592+00:00",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      },
+      {
+        "ts": "2026-09-26T02:21:24.775418+00:00",
+        "flag": "emailMemoryLeak",
+        "event": "incident_end",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      },
+      {
+        "ts": "2026-09-26T02:23:37.414820+00:00",
+        "flag": "adHighCpu",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "resource exhaustion rather than a hard failure \u2014 may show as slow, not down"
+      },
+      {
+        "ts": "2026-09-26T02:26:57.416207+00:00",
+        "flag": "adHighCpu",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "resource exhaustion rather than a hard failure \u2014 may show as slow, not down"
+      },
+      {
+        "ts": "2026-09-26T02:29:17.224440+00:00",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:5",
+    "count": 5,
+    "incidents": [
+      {
+        "ts": "2026-09-26T02:17:24.774592+00:00",
+        "scenario": "email_memory_leak",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      },
+      {
+        "ts": "2026-09-26T02:21:24.775418+00:00",
+        "scenario": "email_memory_leak",
+        "flag": "emailMemoryLeak",
+        "event": "incident_end",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      },
+      {
+        "ts": "2026-09-26T02:23:37.414820+00:00",
+        "scenario": "ad_high_cpu",
+        "flag": "adHighCpu",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "resource exhaustion rather than a hard failure \u2014 may show as slow, not down"
+      },
+      {
+        "ts": "2026-09-26T02:26:57.416207+00:00",
+        "scenario": "ad_high_cpu",
+        "flag": "adHighCpu",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "resource exhaustion rather than a hard failure \u2014 may show as slow, not down"
+      },
+      {
+        "ts": "2026-09-26T02:29:17.224440+00:00",
+        "scenario": "email_memory_leak",
+        "flag": "emailMemoryLeak",
+        "event": "incident_start",
+        "variant": "1000x",
+        "note": "degrades gradually \u2014 a good case for noticing a trend before the healthcheck flips"
+      }
+    ],
+    "tenant": "default"
+  }
+}

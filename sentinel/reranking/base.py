@@ -63,7 +63,7 @@ class BaseReranker(ABC):
             scores = self._score(query, [c.chunk.context_text for c in candidates])
             extra["scored"] = len(scores)
 
-        ranked = sorted(zip(candidates, scores), key=lambda pair: -pair[1])
+        ranked = sorted(zip(candidates, scores, strict=True), key=lambda pair: -pair[1])
         out: list[RetrievedChunk] = []
         for rank, (item, score) in enumerate(ranked[:top_n]):
             if score < floor:

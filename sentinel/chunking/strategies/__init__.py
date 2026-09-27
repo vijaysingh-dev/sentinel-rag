@@ -64,6 +64,7 @@ DOC_TYPE_STRATEGY = {
     "incident": "structural",
     "factsheet": "structural",
     "adr": "structural",
+    "platform": "structural",
     "page": "structural",
 }
 

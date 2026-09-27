@@ -116,8 +116,9 @@ TERMS: list[tuple[str, str, str, str]] = [
      "which looks different from a crash.", "liveness probe, healthcheck"),
     ("Liveness probe / healthcheck", "orchestration",
      "A check that decides whether a container should be restarted. If it fails, the orchestrator "
-     "kills and recreates the container. cart has no container healthcheck, so a wedged cart "
-     "process is never auto-restarted — only a clean exit triggers recreation.", "readiness probe"),
+     "kills and recreates the container. Plain Docker Compose does not do this: a failing "
+     "healthcheck only marks the container unhealthy, so on this platform a wedged cart is "
+     "flagged by its grpc_health_probe but never restarted automatically.", "readiness probe"),
     ("Feature flag", "config",
      "A named switch, evaluated at runtime, that changes behaviour without a deploy. On this "
      "platform flagd serves flags from demo.flagd.json, and the fault-injection scenarios are "

@@ -18,13 +18,15 @@ Edge proxy. All external traffic and the flagd-ui and telemetry-docs routes pass
 Grafana: the `frontend-proxy` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="frontend-proxy", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="frontend-proxy"}[5m]))
-# envoy_http_downstream_rq_total rate
-sum(rate(envoy_http_downstream_rq_total{service_name="frontend-proxy"}[5m]))
-# envoy_http_downstream_rq_time
-envoy_http_downstream_rq_time{service_name="frontend-proxy"}
+# error ratio (span metrics)
+sum(rate(traces_span_metrics_calls_total{service_name="frontend-proxy", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+  / sum(rate(traces_span_metrics_calls_total{service_name="frontend-proxy", span_kind="SPAN_KIND_SERVER"}[5m]))
+# p95 duration, ms (span metrics)
+histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name="frontend-proxy", span_kind="SPAN_KIND_SERVER"}[5m])))
+# httpcheck_status
+httpcheck_status
+# httpcheck_duration_milliseconds
+httpcheck_duration_milliseconds
 ```
 
 In Jaeger, filter to `service = frontend-proxy` and sort by duration for the latency case, or add `error = true` for the error case.
@@ -32,7 +34,7 @@ In Jaeger, filter to `service = frontend-proxy` and sort by duration for the lat
 ## Diagnose
 
 1. **Rule out upstream first.** `frontend-proxy` calls `frontend`. Check each one's error and latency panels for the same window. If an upstream is unhealthy, work that runbook instead — a healthy `frontend-proxy` failing every call to a sick dependency is not a `frontend-proxy` incident.
-2. Pull the RED panels for `frontend-proxy`: `envoy_http_downstream_rq_total`, `envoy_http_downstream_rq_time`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+2. Pull the RED panels for `frontend-proxy`: `httpcheck_status`, `httpcheck_duration_milliseconds`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 3. Open a trace for a failing `frontend-proxy` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 
 ## Mitigate
@@ -47,6 +49,6 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 
 ## After the incident
 
-- Confirm `envoy_http_downstream_rq_total` and the error ratio have held at baseline for 15 minutes.
+- Confirm `httpcheck_status` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.

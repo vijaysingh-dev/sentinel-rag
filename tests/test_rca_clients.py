@@ -78,3 +78,34 @@ def test_resting_variant_prefers_off_then_false_then_smallest():
     assert _resting_variant("x", {"true": True, "false": False}) == "false"
     assert _resting_variant("x", {"50%": 0.5, "0%": 0.0, "100%": 1.0}) == "0%"
     assert _resting_variant("x", {"a": "aa", "b": "bb"}) == "a"
+
+
+def test_resting_variant_prefers_the_shipped_baseline():
+    """loadGeneratorTraffic rests at 'on'; the off-first convention alone called it an active fault."""
+    variants = {"on": True, "off": False}
+    assert _resting_variant("loadGeneratorTraffic", variants, baseline="on") == "on"
+    # a baseline naming a variant the live file no longer has falls back to the convention
+    assert _resting_variant("x", variants, baseline="gone") == "off"
+
+
+def test_shipped_baseline_marks_no_fault_flag_active():
+    """Every fault flag ships at its resting variant; only then can 'active' mean 'injected'."""
+    from sentinel.rca.clients import _baseline_defaults
+
+    baseline = _baseline_defaults()
+    assert baseline, "tracked demo.flagd.json not found"
+    assert baseline["loadGeneratorTraffic"] == "on"
+    assert baseline["paymentFailure"] == "off"
+
+
+def test_trim_labels_keeps_the_labels_that_identify_non_service_series():
+    """container_*, consumer lag and span metrics are not keyed by service_name; dropping their
+    identifying labels turned a per-container memory query into a list of anonymous series."""
+    from sentinel.rca.clients import _trim_labels
+
+    kept = _trim_labels(
+        {"container_name": "email", "group": "accounting", "span_kind": "SPAN_KIND_SERVER",
+         "status_code": "STATUS_CODE_ERROR", "otel_scope_name": "noise", "host_name": "noise"}
+    )
+    assert kept == {"container_name": "email", "group": "accounting", "span_kind": "SPAN_KIND_SERVER",
+                    "status_code": "STATUS_CODE_ERROR"}

@@ -133,3 +133,78 @@ def test_index_version_changes_with_chunking_config(monkeypatch):
     base = Settings(chunk_size=550, embed_provider="local")
     changed = Settings(chunk_size=900, embed_provider="local")
     assert base.index_version != changed.index_version
+
+
+class _DictCache:
+    """In-memory stand-in for RetrievalCache — records puts so a test can assert what got cached."""
+
+    def __init__(self):
+        self.data: dict = {}
+        self.puts = 0
+
+    def get(self, query, scope, **extra):
+        return self.data.get(query)
+
+    def put(self, query, scope, payload, **extra):
+        self.puts += 1
+        self.data[query] = payload
+
+
+class _PassReranker:
+    name = "pass"
+
+    def rerank(self, query, candidates, top_n, floor=None):
+        return candidates[:top_n]
+
+
+class _BrokenReranker:
+    name = "broken"
+
+    def rerank(self, query, candidates, top_n, floor=None):
+        raise RuntimeError("reranker down")
+
+
+def test_a_cache_hit_is_not_degraded(store, embedder):
+    """Only full results are cached, so a hit replays a full result — it must not be flagged."""
+    pipeline = RetrievalPipeline(store=store, embedder=embedder, reranker=_PassReranker(), use_cache=False)
+    pipeline.cache = _DictCache()
+
+    first = pipeline.retrieve("checkout runbook upstream dependencies", roles=["admin"])
+    second = pipeline.retrieve("checkout runbook upstream dependencies", roles=["admin"])
+
+    assert (first.mode, first.degraded) == ("full", False)
+    assert (second.mode, second.cache_hit, second.degraded) == ("cache", True, False)
+
+
+def test_a_rerank_failure_is_degraded_and_never_cached(store, embedder):
+    """Unranked fallback results used to be labelled `full` — unflagged, and cached as if full."""
+    pipeline = RetrievalPipeline(store=store, embedder=embedder, reranker=_BrokenReranker(), use_cache=False)
+    pipeline.cache = _DictCache()
+
+    results = pipeline.retrieve("checkout runbook upstream dependencies", roles=["admin"])
+
+    assert results.chunks
+    assert (results.mode, results.degraded) == ("rerank_failed", True)
+    assert pipeline.cache.puts == 0
+
+
+def test_search_knowledge_flags_degraded_results_but_not_cached_ones(monkeypatch):
+    import asyncio
+
+    from sentinel.core.types import Chunk, RetrievedChunk
+    from sentinel.rca.runtime import request_context
+    from sentinel.rca.tools import retrieval as tool_module
+    from sentinel.retrieval.pipeline import RetrievalResult
+
+    def run(mode):
+        chunk = Chunk(chunk_id="d::0::x", doc_id="d", parent_id="d::root", embed_text="t", context_text="t")
+        result = RetrievalResult(chunks=[RetrievedChunk(chunk=chunk, score=1.0)], query="q", mode=mode)
+        monkeypatch.setattr(tool_module, "pipeline", lambda: type("P", (), {"retrieve": lambda *a, **k: result})())
+        with request_context("default", ["admin"]):
+            out = asyncio.run(tool_module.search_knowledge.ainvoke({"query": "q"}))
+        return any("degraded" in str(item.get("note", "")) for item in out)
+
+    assert run("cache") is False
+    assert run("full") is False
+    assert run("rerank_failed") is True
+    assert run("bm25_only") is True

@@ -20,7 +20,7 @@ Checkout attempts failed at the payment step. Customers who reached the payment 
 - 13:02 — First alert: `checkout` error ratio crosses its page threshold. checkout and the checkout team are paged.
 - 13:04 — Responder confirms the alert on `checkout` and begins checking its own dependencies rather than `checkout` itself, since `checkout` code has not changed.
 - 13:07 — Trace inspection: a `checkout` request trace shows the error status originating in the `payment` span, not in `checkout`.
-- 13:09 — `payment` RED panels match the known signature — payment error_rate = n%; checkout app_orders_failed_total up; no latency change.
+- 13:09 — `payment` RED panels match the known signature — payment error_rate = n% (span status ERROR on charge); checkout error_rate up in step; no latency change.
 - 13:11 — flagd checked: `paymentFailure` is active, set at 13:00. Cause confirmed.
 - 13:12 — Flag reset to resting variant. `payment` recovers on the next flag evaluation.
 - 13:16 — `checkout` metrics back at baseline for 3 minutes. Incident closed.
@@ -48,5 +48,5 @@ The `paymentFailure` feature flag was set to its fault variant. charge() throws 
 ## Detection signature
 
 ```
-payment error_rate = n%; checkout app_orders_failed_total up; no latency change.
+payment error_rate = n% (span status ERROR on charge); checkout error_rate up in step; no latency change.
 ```

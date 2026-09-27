@@ -157,11 +157,12 @@ class FlagClient:
     async def current_flags(self, only_non_default: bool) -> dict:
         raw = json.loads(self._config_path().read_text())
         flags = raw.get("flags", {})
+        baseline = _baseline_defaults()
         out = []
         for name, spec in flags.items():
             default = spec.get("defaultVariant")
             variants = spec.get("variants", {})
-            resting = _resting_variant(name, variants)
+            resting = _resting_variant(name, variants, baseline.get(name))
             is_active = resting is not None and default != resting
             if only_non_default and not is_active:
                 continue
@@ -285,9 +286,18 @@ class ITSMClient:
 
 
 def _trim_labels(labels: dict[str, str]) -> dict[str, str]:
-    """Keep the labels a human reads; drop the OTel scope noise that bloats every series."""
+    """Keep the labels a human reads; drop the OTel scope noise that bloats every series.
+
+    The kept set includes the labels that *identify* a series in the families not keyed by
+    service_name — container_name, group, topic — and the span-metrics dimensions. Without them a
+    `sum by (container_name) (...)` result reached the model as a list of identical `{}` series,
+    and a memory leak could not be attributed to any container.
+    """
     keep = ("service_name", "job", "instance", "http_route", "rpc_method", "rpc_service",
-            "rpc_grpc_status_code", "http_response_status_code", "le", "operation", "span_name")
+            "rpc_grpc_status_code", "rpc_response_status_code", "http_response_status_code",
+            "http_request_method", "le", "operation", "span_name", "span_kind", "status_code",
+            "container_name", "group", "topic", "partition", "feature_flag_key",
+            "postgresql_database_name")
     return {k: v for k, v in labels.items() if k in keep}
 
 
@@ -382,12 +392,34 @@ def _span_error_message(span: dict) -> str | None:
     return next((t.get("value") for t in span.get("tags", []) if t.get("key") in keys), None)
 
 
-def _resting_variant(flag: str, variants: dict[str, Any]) -> str | None:
+@lru_cache
+def _baseline_defaults() -> dict[str, str]:
+    """Each flag's `defaultVariant` in the tracked, shipped demo.flagd.json.
+
+    That file is what `make demo-up` stages as the live copy, and what the incident-generator
+    resets to, so its defaults are the platform's resting state by definition. Read once: it only
+    changes when the demo is re-vendored.
+    """
+    path = Path(settings.flagd_baseline_path)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    try:
+        flags = json.loads(path.read_text()).get("flags", {})
+    except (OSError, ValueError):
+        return {}
+    return {name: spec.get("defaultVariant") for name, spec in flags.items() if spec.get("defaultVariant")}
+
+
+def _resting_variant(flag: str, variants: dict[str, Any], baseline: str | None = None) -> str | None:
     """The variant a flag sits at when no fault is injected.
 
-    flagd config does not record this, so infer it: the demo convention is that the resting
-    variant is 'off', or 'false', or the numerically smallest, or the first declared.
+    The shipped baseline says so directly and wins. Without it, fall back to the demo convention —
+    'off', or 'false', or the numerically smallest, or the first declared. The convention alone got
+    loadGeneratorTraffic wrong: that flag rests at 'on', so every investigation was told a flag was
+    active before it had looked at anything.
     """
+    if baseline in variants:
+        return baseline
     for candidate in ("off", "false"):
         if candidate in variants:
             return candidate

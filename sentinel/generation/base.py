@@ -25,6 +25,14 @@ from typing import Any
 
 from sentinel.core.observability import log
 
+# Output ceiling for the cheap model, shared by every provider. It was 800, which fits a routing
+# decision but not RCA evidence extraction: a metrics specialist that ran several queries yields
+# several claims, each with a verbatim excerpt, and the structured output was cut off mid-JSON
+# (LengthFinishReasonError), failing the node and then the whole graph. A ceiling is not a cost —
+# only generated tokens are billed — so it is sized for the largest cheap-model output, not the
+# typical one.
+CHEAP_MAX_TOKENS = 2000
+
 
 class BaseLLM(ABC):
     name: str = "base"

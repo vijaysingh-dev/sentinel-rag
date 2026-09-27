@@ -118,7 +118,7 @@ A check the orchestrator runs to decide whether a service instance should receiv
 
 ## Liveness probe / healthcheck
 
-A check that decides whether a container should be restarted. If it fails, the orchestrator kills and recreates the container. cart has no container healthcheck, so a wedged cart process is never auto-restarted — only a clean exit triggers recreation.
+A check that decides whether a container should be restarted. If it fails, the orchestrator kills and recreates the container. Plain Docker Compose does not do this: a failing healthcheck only marks the container unhealthy, so on this platform a wedged cart is flagged by its grpc_health_probe but never restarted automatically.
 
 *See also: readiness probe.*
 

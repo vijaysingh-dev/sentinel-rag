@@ -65,7 +65,7 @@ def with_node_guard(name: str, timeout_s: int | None = None):
                 result = await asyncio.wait_for(fn(state), timeout=limit)
                 breaker.record(ok=True)
                 return result
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 breaker.record(ok=False)
                 NODE_ERRORS.labels(name, "timeout").inc()
                 log.warning("node_timeout", node=name, anomaly=state.get("anomaly_id"))

@@ -1,0 +1,227 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:e2f0b141410f1946::0001::808f890ea039a90e",
+      "title": "knowledge/runbook/checkout.docx",
+      "doc_type": "runbook",
+      "effective_date": "2026-09-26",
+      "score": 5.0998,
+      "text": "# checkout runbook\n\nThe synchronous order pipeline. Calls cart, currency, product-catalog, shipping, payment, then email, in order. Implemented in Go. Owned by the checkout team (PD-CHECKOUT, #astroshop-checkout).\n\n## When this fires\n\ncheckout is on the customer-facing critical path. A failure here surfaces on frontend, frontend-proxy as elevated errors or latency, often before a checkout alert fires. If you were paged for one of those and the cause is not obvious there, check checkout early.\n\n## Thresholds\n\n| Signal | Objective | Page at |\n| --- | --- | --- |\n| Availability (28d) | 99.5% | error budget 50% burned in 1h |\n| Duration p95 | < 1200 ms | > 1800 ms for 5m |\n| Duration p99 | < 2500 ms | > 3750 ms for 5m |\n\n## Dashboards and queries\n\nGrafana: the checkout row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:\n\npromql\n\n# error ratio (span metrics)\n\nsum(rate(traces_span_metrics_calls_total{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[5m]))\n\n/ sum(rate(traces_span_metrics_calls_total{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))\n\n# p95 duration, ms (span metrics)\n\nhistogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))\n\n# rpc_server_call_duration_seconds p95\n\nhistogram_quantile(0.95, sum by (le) (rate(rpc_server_call_duration_seconds_bucket{service_name=\"checkout\"}"
+    },
+    {
+      "ref": "doc:317d52db8b8af9c5::0007::708f7dfa8aeb5edd",
+      "title": "INC-2607: payment returning errors > Action items",
+      "doc_type": "incident",
+      "effective_date": "2026-09-26",
+      "score": 5.021,
+      "text": "[inc 2607 payment paymentfailure > INC-2607: payment returning errors > Action items]\n1. Add a Grafana annotation and a low-urgency alert on `flagd_flag_evaluations_total` deltas, so a flag flip is visible on every dashboard. *(owner: platform-eng)*\n2. Add \"check the dependency graph before the service that paged\" as step 1 of the `checkout` runbook. *(owner: checkout)* \u2014 done, see `knowledge/runbook/checkout.md`.\n3. Confirm the `payment` runbook's known-failure-modes section lists `paymentFailure` with this signature. *(owner: checkout)*"
+    },
+    {
+      "ref": "doc:eaf54ba01ebd37ae::0007::0b2905dfe8dae515",
+      "title": "INC-2628: product-catalog returning errors > Action items",
+      "doc_type": "incident",
+      "effective_date": "2026-09-26",
+      "score": 5.0156,
+      "text": "[inc 2628 product catalog productcatalogfailure > INC-2628: product-catalog returning errors > Action items]\n1. Add a Grafana annotation and a low-urgency alert on `flagd_flag_evaluations_total` deltas, so a flag flip is visible on every dashboard. *(owner: platform-eng)*\n2. Add \"check the dependency graph before the service that paged\" as step 1 of the `checkout` runbook. *(owner: checkout)* \u2014 done, see `knowledge/runbook/checkout.md`.\n3. Confirm the `product-catalog` runbook's known-failure-modes section lists `productCatalogFailure` with this signature. *(owner: catalog)*"
+    },
+    {
+      "ref": "doc:0ef99a1ffcd6692f::0017::919291c3ad718874",
+      "title": "Dependency-failure playbook > If `checkout` is down",
+      "doc_type": "reference",
+      "effective_date": "2026-09-26",
+      "score": 4.8721,
+      "text": "[dependency failure playbook > Dependency-failure playbook > If `checkout` is down]\n**Customer-facing impact: yes**, via `frontend`, `frontend-proxy`. Expect the first page to land on one of those, not on `checkout` \u2014 see that service's own runbook for its specific symptom, and `checkout`'s runbook for the actual fix."
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:f6f19c05ece7",
+    "expr": "sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[2m])) / sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[2m]))",
+    "window_minutes": 15,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "checkout"
+          },
+          "first": 0.0,
+          "last": 0.0,
+          "min": 0.0,
+          "max": 1.0,
+          "direction": "flat",
+          "from": "2026-09-26T01:38:20.150000+00:00",
+          "to": "2026-09-26T01:53:20.150000+00:00",
+          "points": 9
+        },
+        {
+          "labels": {
+            "service_name": "flagd"
+          },
+          "first": 0.0,
+          "last": 0.00284,
+          "min": 0.0,
+          "max": 0.00284,
+          "direction": "rising",
+          "from": "2026-09-26T01:38:20.150000+00:00",
+          "to": "2026-09-26T01:53:20.150000+00:00",
+          "points": 9
+        },
+        {
+          "labels": {
+            "service_name": "frontend"
+          },
+          "first": 0.0,
+          "last": 0.0,
+          "min": 0.0,
+          "max": 0.02066,
+          "direction": "flat",
+          "from": "2026-09-26T01:38:20.150000+00:00",
+          "to": "2026-09-26T01:53:20.150000+00:00",
+          "points": 9
+        },
+        {
+          "labels": {
+            "service_name": "frontend-proxy"
+          },
+          "first": 0.0,
+          "last": 0.00556,
+          "min": 0.0,
+          "max": 0.01111,
+          "direction": "rising",
+          "from": "2026-09-26T01:38:20.150000+00:00",
+          "to": "2026-09-26T01:53:20.150000+00:00",
+          "points": 9
+        },
+        {
+          "labels": {
+            "service_name": "payment"
+          },
+          "first": 0.0,
+          "last": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "direction": "flat",
+          "from": "2026-09-26T01:38:20.150000+00:00",
+          "to": "2026-09-26T01:53:20.150000+00:00",
+          "points": 9
+        }
+      ],
+      "series_count": 5
+    }
+  },
+  "find_traces": {
+    "ref": "trace:18574b9e9878",
+    "service": "checkout",
+    "count": 0,
+    "traces": [],
+    "instruction": "Cite trace:<id> for any claim about a specific span.",
+    "tenant": "default"
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "cartFailure",
+          "current_variant": "100%",
+          "resting_variant": "off",
+          "active": true,
+          "value": 1
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:1h",
+    "count": 5,
+    "changes": [
+      {
+        "ts": "2026-09-26T01:33:43.614783+00:00",
+        "flag": "paymentFailure",
+        "event": "incident_start",
+        "variant": "50%",
+        "note": "checkout depends on payment (service_healthy) \u2014 expect checkout and frontend to degrade"
+      },
+      {
+        "ts": "2026-09-26T01:36:43.617858+00:00",
+        "flag": "paymentFailure",
+        "event": "incident_end",
+        "variant": "50%",
+        "note": "checkout depends on payment (service_healthy) \u2014 expect checkout and frontend to degrade"
+      },
+      {
+        "ts": "2026-09-26T01:37:55.688299+00:00",
+        "flag": "paymentUnreachable",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "harder failure than payment_degraded \u2014 payment is fully unreachable, not just flaky"
+      },
+      {
+        "ts": "2026-09-26T01:39:55.689101+00:00",
+        "flag": "paymentUnreachable",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "harder failure than payment_degraded \u2014 payment is fully unreachable, not just flaky"
+      },
+      {
+        "ts": "2026-09-26T01:40:55.168720+00:00",
+        "flag": "cartFailure",
+        "event": "incident_start",
+        "variant": "100%",
+        "note": "cart has no container healthcheck (see tree.yaml no_healthcheck) \u2014 rollup relies on process liveness only"
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:5",
+    "count": 5,
+    "incidents": [
+      {
+        "ts": "2026-09-26T01:33:43.614783+00:00",
+        "scenario": "payment_degraded",
+        "flag": "paymentFailure",
+        "event": "incident_start",
+        "variant": "50%",
+        "note": "checkout depends on payment (service_healthy) \u2014 expect checkout and frontend to degrade"
+      },
+      {
+        "ts": "2026-09-26T01:36:43.617858+00:00",
+        "scenario": "payment_degraded",
+        "flag": "paymentFailure",
+        "event": "incident_end",
+        "variant": "50%",
+        "note": "checkout depends on payment (service_healthy) \u2014 expect checkout and frontend to degrade"
+      },
+      {
+        "ts": "2026-09-26T01:37:55.688299+00:00",
+        "scenario": "payment_outage",
+        "flag": "paymentUnreachable",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "harder failure than payment_degraded \u2014 payment is fully unreachable, not just flaky"
+      },
+      {
+        "ts": "2026-09-26T01:39:55.689101+00:00",
+        "scenario": "payment_outage",
+        "flag": "paymentUnreachable",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "harder failure than payment_degraded \u2014 payment is fully unreachable, not just flaky"
+      },
+      {
+        "ts": "2026-09-26T01:40:55.168720+00:00",
+        "scenario": "cart_outage",
+        "flag": "cartFailure",
+        "event": "incident_start",
+        "variant": "100%",
+        "note": "cart has no container healthcheck (see tree.yaml no_healthcheck) \u2014 rollup relies on process liveness only"
+      }
+    ],
+    "tenant": "default"
+  }
+}

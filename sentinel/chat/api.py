@@ -150,8 +150,9 @@ async def _stream_message(body: MessageRequest, request: Request):
 
 async def _refuse_reply(result: RouteResult):
     result.reply_text = (
-        "I can help with questions about the OpenTelemetry Demo platform — its services, health, "
-        "incidents, and runbooks. That's outside what I can help with."
+        "I can help with questions about the OpenTelemetry Demo platform — its services, "
+        "infrastructure, observability, failure modes, health, incidents, and runbooks. "
+        "That's outside what I can help with."
     )
     yield format_event({"type": "token", "text": result.reply_text})
 
@@ -173,8 +174,18 @@ async def _tool_call_reply(decision: RouteDecision, result: RouteResult):
         if not incidents:
             text = "No incidents have been triggered recently."
         else:
+            # The log is start/end pairs, so the newest event alone answers "is one running?":
+            # an unmatched incident_start is the active run. Echoing the raw event used to answer
+            # "is an incident running?" with "Most recent incident: ... (incident_end)".
             latest = incidents[-1]
-            text = f"Most recent incident: {latest['scenario']} ({latest['event']}) at {latest['ts']}."
+            when = str(latest["ts"])[:19].replace("T", " ")
+            if latest["event"] == "incident_start":
+                text = (
+                    f"Yes — {latest['scenario']} is running: flag {latest['flag']} set to "
+                    f"{latest.get('variant')} since {when} UTC."
+                )
+            else:
+                text = f"No incident is running. The last one, {latest['scenario']}, ended at {when} UTC."
 
     result.reply_text = text
     yield format_event({"type": "token", "text": text})

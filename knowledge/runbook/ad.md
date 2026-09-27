@@ -18,22 +18,24 @@ Serves a contextual ad on the product page. Leaf service under frontend. Impleme
 Grafana: the `ad` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="ad", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="ad"}[5m]))
+# error ratio (span metrics)
+sum(rate(traces_span_metrics_calls_total{service_name="ad", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+  / sum(rate(traces_span_metrics_calls_total{service_name="ad", span_kind="SPAN_KIND_SERVER"}[5m]))
+# p95 duration, ms (span metrics)
+histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name="ad", span_kind="SPAN_KIND_SERVER"}[5m])))
 # rpc_server_duration_milliseconds p95
 histogram_quantile(0.95, sum by (le) (rate(rpc_server_duration_milliseconds_bucket{service_name="ad"}[5m])))
 # jvm_gc_duration_seconds p95
 histogram_quantile(0.95, sum by (le) (rate(jvm_gc_duration_seconds_bucket{service_name="ad"}[5m])))
-# process_cpu_utilization
-process_cpu_utilization{service_name="ad"}
+# jvm_cpu_recent_utilization_ratio
+jvm_cpu_recent_utilization_ratio{service_name="ad"}
 ```
 
 In Jaeger, filter to `service = ad` and sort by duration for the latency case, or add `error = true` for the error case.
 
 ## Diagnose
 
-1. Pull the RED panels for `ad`: `rpc_server_duration_milliseconds`, `jvm_gc_duration_seconds`, `process_cpu_utilization`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+1. Pull the RED panels for `ad`: `rpc_server_duration_milliseconds`, `jvm_gc_duration_seconds`, `jvm_cpu_recent_utilization_ratio`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 2. Open a trace for a failing `ad` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 3. Check whether a fault flag is active. `ad` has injectable faults; a flag flip is by far the most common cause in this environment. Query flagd for the flags below and compare the timestamp to when the alert started.
 
@@ -51,7 +53,7 @@ In Jaeger, filter to `service = ad` and sort by duration for the latency case, o
 
 **Effect.** A background thread pins CPU.
 
-**Signature.** ad process_cpu_utilization saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
+**Signature.** ad jvm_cpu_recent_utilization_ratio saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
 
 **Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `rpc_server_duration_milliseconds` returns to baseline before closing.
 

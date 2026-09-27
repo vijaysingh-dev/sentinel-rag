@@ -51,14 +51,14 @@ def _threshold(p: Platform, svc_name: str, metric: str) -> str:
     if "fail" in metric or "error" in metric:
         return "rate > 0 sustained; ratio > 1% for 5m"
     if "lag" in metric:
+        # kafka_consumer_group_lag_ratio counts messages, while the freshness SLO is in seconds;
+        # "still rising" is the unit-free signal, and it is what a stalled consumer looks like.
         base = slo.get("freshness_lag_s", 60)
-        return f"> {base * 3} s for 10m"
+        return f"rising for 10m (messages behind; freshness SLO is {base}s)"
     if "memory" in metric or "bytes" in metric:
         return "monotonic climb over 30m (leak signature)"
     if "cpu" in metric:
         return "> 85% for 10m"
-    if "cache_hit_ratio" in metric:
-        return "< 0.5 for 10m"
     return "no direct alert; context for the RED panels"
 
 
@@ -75,9 +75,11 @@ def _metrics_xlsx(p: Platform) -> str:
         c.fill = PatternFill("solid", fgColor="2B3A55")
 
     for name, svc in sorted(p.services.items()):
-        # the generic error-ratio row first
-        ws.append([name, svc.tier, svc.team, "error ratio (RED)", "derived",
-                   error_ratio(name).replace("\n", " "), "> 1% for 5m"])
+        # the generic error-ratio row first, for every service that emits spans
+        ratio = error_ratio(name)
+        if ratio:
+            ws.append([name, svc.tier, svc.team, "error ratio (RED)", "derived",
+                       ratio.replace("\n", " "), "> 1% for 5m"])
         for m in svc.key_metrics:
             _label, q = query_for(m, name)
             ws.append([name, svc.tier, svc.team, m, _metric_type(m), q, _threshold(p, name, m)])

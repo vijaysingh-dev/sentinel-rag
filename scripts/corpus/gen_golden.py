@@ -80,7 +80,7 @@ def _examples() -> list[dict]:
         answer_substrings=["cache", "product-catalog"])
     add(id="g014", category="howto", role="oncall",
         question="the cart pod seems wedged, latency flat, no logs",
-        answer_substrings=["no container healthcheck", "delete the pod"])
+        answer_substrings=["grpc_health_probe", "docker restart cart"])
     add(id="g015", category="howto", role="oncall",
         question="how do I roll back the recommendation service safely",
         answer_substrings=["stateless", "previous image tag"])
@@ -89,7 +89,7 @@ def _examples() -> list[dict]:
         answer_substrings=["memory", "best-effort"])
     add(id="g017", category="howto", role="oncall",
         question="which promql query gives me the error ratio for checkout",
-        answer_substrings=["rpc_server_duration_milliseconds_count", "rate("])
+        answer_substrings=["traces_span_metrics_calls_total", "STATUS_CODE_ERROR"])
 
     # ------------------------------------------------------------ design_rationale
     add(id="g020", category="design_rationale", role="oncall",
@@ -168,10 +168,93 @@ def _examples() -> list[dict]:
         answer_substrings=["dependency", "trace"])
     add(id="g062", category="multi_hop", role="oncall",
         question="the ad service is down, will checkout be affected",
-        answer_substrings=["leaf", "does not cascade"])
+        answer_substrings=["no cascade past frontend"])
     add(id="g063", category="multi_hop", role="sre",
         question="a recommendation deploy is scheduled at peak, why is that risky",
         answer_substrings=["cache", "product-catalog"])
+
+    # ----------------------------------------------------------------- platform reference
+    # Added with knowledge/platform/ (gen_platform.py). Each question was first asked of the live
+    # chat API: g100 was refused as off-topic before that directory existed, g114 got the checkout
+    # call order wrong from a stale services.yaml role, g113/g115 needed metric names that exist.
+    add(id="g100", category="lookup", role="viewer",
+        question="what services exist",
+        answer_substrings=["frontend-proxy", "fraud-detection", "valkey-cart"])
+    add(id="g101", category="lookup", role="viewer",
+        question="how many services does the platform run",
+        answer_substrings=["20 services"])
+    add(id="g102", category="lookup", role="oncall",
+        question="where does cart store its data",
+        answer_substrings=["logical DB 1"])
+    add(id="g103", category="lookup", role="oncall",
+        question="what is the jaeger url",
+        answer_substrings=["16686/jaeger/ui"])
+    add(id="g104", category="lookup", role="oncall",
+        question="how long does the shipping_slowdown scenario last",
+        answer_substrings=["shipping_slowdown", "200s"])
+    add(id="g105", category="lookup", role="oncall",
+        question="what memory limit does the recommendation service have",
+        answer_substrings=["500M"])
+    add(id="g106", category="lookup", role="viewer",
+        question="is kafka running in this deployment",
+        answer_substrings=["compose.full.yaml", "orders"])
+    add(id="g107", category="lookup", role="oncall",
+        question="which label selects a service in container_memory_usage_total_bytes",
+        answer_substrings=["container_name"])
+    add(id="g110", category="howto", role="oncall",
+        question="how do I inject a fault by hand",
+        answer_substrings=["flagd-ui", "demo.flagd.json"])
+    add(id="g111", category="howto", role="oncall",
+        question="how do I start the whole platform",
+        answer_substrings=["make otel-demo-up"])
+    add(id="g112", category="howto", role="oncall",
+        question="how do I see the health rollup and recent incidents from a terminal",
+        answer_substrings=["make demo-status"])
+    add(id="g113", category="howto", role="oncall",
+        question="how do I query p95 latency for payment in prometheus",
+        answer_substrings=["traces_span_metrics_duration_milliseconds_bucket", "histogram_quantile"])
+    add(id="g114", category="lookup", role="oncall",
+        question="what does checkout call, in order",
+        answer_substrings=["GetCart", "Charge the card", "ShipOrder"])
+    add(id="g115", category="howto", role="oncall",
+        question="which promql shows kafka consumer lag for accounting",
+        answer_substrings=["kafka_consumer_group_lag_ratio", 'group="accounting"'])
+    add(id="g120", category="design_rationale", role="oncall",
+        question="why are astronomy-db and valkey-cart disabled",
+        answer_substrings=["disabled-by-sentinel-rag"])
+    add(id="g121", category="design_rationale", role="oncall",
+        question="why is triggering incidents manual only",
+        answer_substrings=["ambiguous"])
+    add(id="g122", category="design_rationale", role="oncall",
+        question="why does system-monitor connect to redis and postgres instead of reading docker health",
+        answer_substrings=["PING", "SELECT 1"])
+    add(id="g123", category="design_rationale", role="sre",
+        question="why do the collector's OTLP receivers listen on 0.0.0.0",
+        answer_substrings=["0.0.0.0", "infra"])
+    add(id="g130", category="multi_hop", role="oncall",
+        question="if redis goes down which customer flows break",
+        answer_substrings=["add-to-cart"])
+    add(id="g131", category="multi_hop", role="oncall",
+        question="system-monitor says everything is healthy but customers see payment errors, how",
+        answer_substrings=["container health, not correctness"])
+    add(id="g132", category="multi_hop", role="oncall",
+        question="payment is failing, which other services will show it",
+        answer_substrings=["Blast radius", "checkout"])
+    add(id="g140", category="live_status", role="oncall", expected_behaviour="escalate",
+        question="which scenario is the incident generator running right now",
+        answer_substrings=[])
+    add(id="g141", category="live_status", role="oncall", expected_behaviour="escalate",
+        question="is accounting falling behind on the orders topic at the moment",
+        answer_substrings=[])
+    add(id="g150", category="mixed", role="oncall", expected_behaviour="escalate",
+        question="checkout errors are up, which flag could do that and is it set now",
+        answer_substrings=["paymentFailure"])
+    add(id="g160", category="unanswerable", role="oncall", expected_behaviour="refuse",
+        question="what kubernetes namespace does astroshop deploy into",
+        answer_substrings=[])
+    add(id="g161", category="unanswerable", role="oncall", expected_behaviour="refuse",
+        question="how do I add a second kafka broker for high availability",
+        answer_substrings=[])
 
     # ----------------------------------------------------------------- unanswerable
     add(id="g070", category="unanswerable", role="oncall", expected_behaviour="refuse",
@@ -204,6 +287,15 @@ def _examples() -> list[dict]:
     add(id="g083", category="acl_denied", role="viewer", expected_behaviour="refuse",
         question="what is the escalation paging order for a checkout incident",
         answer_substrings=[], must_not_contain=["PD-CHECKOUT"])
+    add(id="g084", category="acl_denied", role="oncall", expected_behaviour="refuse",
+        question="what headroom multiple did the capacity review find for checkout",
+        answer_substrings=[], must_not_contain=["CONFIDENTIAL", "Headroom is defined"])
+    add(id="g085", category="acl_denied", role="viewer", expected_behaviour="refuse",
+        question="what did the cart outage post-mortem conclude",
+        answer_substrings=[], must_not_contain=["INC-2663"])
+    add(id="g086", category="acl_denied", role="oncall", expected_behaviour="refuse",
+        question="what did the quarterly incident review say about checkout",
+        answer_substrings=[], must_not_contain=["quarterly incident review"])
 
     return E
 

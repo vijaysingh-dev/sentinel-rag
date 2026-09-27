@@ -18,20 +18,18 @@ Relational store behind product-catalog. Implemented in SQL / PostgreSQL. Owned 
 Grafana: the `astronomy-db` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="astronomy-db", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="astronomy-db"}[5m]))
-# pg_stat_database_xact_commit
-pg_stat_database_xact_commit{service_name="astronomy-db"}
-# pg_stat_activity_count
-pg_stat_activity_count{service_name="astronomy-db"}
+# astronomy-db emits no spans, so there is no span-metrics error ratio; use the signals below
+# postgresql_backends
+postgresql_backends
+# postgresql_commits_total rate
+sum(rate(postgresql_commits_total[5m]))
 ```
 
 In Jaeger, filter to `service = astronomy-db` and sort by duration for the latency case, or add `error = true` for the error case.
 
 ## Diagnose
 
-1. Pull the RED panels for `astronomy-db`: `pg_stat_database_xact_commit`, `pg_stat_activity_count`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+1. Pull the RED panels for `astronomy-db`: `postgresql_backends`, `postgresql_commits_total`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 2. Open a trace for a failing `astronomy-db` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 
 ## Mitigate
@@ -46,7 +44,7 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 
 ## After the incident
 
-- Confirm `pg_stat_database_xact_commit` and the error ratio have held at baseline for 15 minutes.
+- Confirm `postgresql_backends` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.
 

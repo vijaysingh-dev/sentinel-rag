@@ -18,13 +18,17 @@ The product database. Shared dependency of frontend and recommendation. Backed b
 Grafana: the `product-catalog` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="product-catalog", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="product-catalog"}[5m]))
-# rpc_server_duration_milliseconds p95
-histogram_quantile(0.95, sum by (le) (rate(rpc_server_duration_milliseconds_bucket{service_name="product-catalog"}[5m])))
-# app_products_returned_total rate
-sum(rate(app_products_returned_total{service_name="product-catalog"}[5m]))
+# error ratio (span metrics)
+sum(rate(traces_span_metrics_calls_total{service_name="product-catalog", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+  / sum(rate(traces_span_metrics_calls_total{service_name="product-catalog", span_kind="SPAN_KIND_SERVER"}[5m]))
+# p95 duration, ms (span metrics)
+histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name="product-catalog", span_kind="SPAN_KIND_SERVER"}[5m])))
+# rpc_server_call_duration_seconds p95
+histogram_quantile(0.95, sum by (le) (rate(rpc_server_call_duration_seconds_bucket{service_name="product-catalog"}[5m])))
+# db_client_operation_duration_seconds p95
+histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket{service_name="product-catalog"}[5m])))
+# db_sql_connection_open
+db_sql_connection_open{service_name="product-catalog"}
 ```
 
 In Jaeger, filter to `service = product-catalog` and sort by duration for the latency case, or add `error = true` for the error case.
@@ -32,7 +36,7 @@ In Jaeger, filter to `service = product-catalog` and sort by duration for the la
 ## Diagnose
 
 1. **Rule out upstream first.** `product-catalog` calls `astronomy-db`. Check each one's error and latency panels for the same window. If an upstream is unhealthy, work that runbook instead — a healthy `product-catalog` failing every call to a sick dependency is not a `product-catalog` incident.
-2. Pull the RED panels for `product-catalog`: `rpc_server_duration_milliseconds`, `app_products_returned_total`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+2. Pull the RED panels for `product-catalog`: `rpc_server_call_duration_seconds`, `db_client_operation_duration_seconds`, `db_sql_connection_open`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 3. Open a trace for a failing `product-catalog` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 4. Check whether a fault flag is active. `product-catalog` has injectable faults; a flag flip is by far the most common cause in this environment. Query flagd for the flags below and compare the timestamp to when the alert started.
 
@@ -44,7 +48,7 @@ In Jaeger, filter to `service = product-catalog` and sort by duration for the la
 
 **Signature.** product-catalog error_rate low but non-zero; errors correlate with one product; frontend PDP errors for that product only.
 
-**Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `rpc_server_duration_milliseconds` returns to baseline before closing.
+**Response.** Confirm the flag is set by querying flagd. Set it back to its resting variant (`flagd-ui`, or the incident-generator reset). Recovery is immediate on the next flag evaluation; no restart. Confirm `rpc_server_call_duration_seconds` returns to baseline before closing.
 
 ## Mitigate
 
@@ -58,7 +62,7 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 
 ## After the incident
 
-- Confirm `rpc_server_duration_milliseconds` and the error ratio have held at baseline for 15 minutes.
+- Confirm `rpc_server_call_duration_seconds` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.
 

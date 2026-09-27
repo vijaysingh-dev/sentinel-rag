@@ -24,6 +24,8 @@ Available but not default, for benchmarking or specific corpora: `fixed`, `recur
 
 ## Why chunking is a stage at all
 
+Imagine you had to email someone the one paragraph of a textbook that answers their question, by physically tearing pages out and scanning just that scrap. Tear out too little — a single sentence — and you've handed them something with no idea what it's even about ("Set this to false to skip validation" — *what* setting, *where*?). Tear out too much — three surrounding pages — and the answer is buried in text they have to read anyway, and worse, a computer trying to match this scrap against a search query now has to represent "three pages about five different things" as a single point in space, which resembles nothing in particular. Chunking is the tearing, done automatically, thousands of times, and it turns out you cannot tear once and make both a search engine and a human reader happy with the result — which is the entire reason this stage exists as a hard problem rather than a five-line function.
+
 Two consumers read the same text and want opposite things from it:
 
 - The **retriever** wants small, single-topic units. A vector that averages five topics sits near nothing in embedding space — it is findable by no query and by every query equally.
@@ -323,6 +325,26 @@ DOC_TYPE_STRATEGY = {
 `chunker_for_doc(doc, override)` → explicit `override` wins; else `DOC_TYPE_STRATEGY.get(doc.doc_type, "structural")`.
 
 **This mapping is the practical answer to "how do you chunk?"** — not one strategy, but a per-content-type decision, each row justified by `benchmarks/chunking_sweep.py`. The cost (from [`../design-decisions.md`](../design-decisions.md)): a routing table to maintain, and per-type benchmarking rather than a single number.
+
+---
+
+## Common questions
+
+**`embed_text` and `context_text` are usually identical — why carry two fields instead of one that's reused twice?** Because the moment a strategy needs them to diverge — `sentence_window` embedding one sentence but returning seven, `parent_document` embedding a small child but returning its whole parent section — a single-field model literally cannot represent that. It would need a second, differently-shaped chunk type just for those strategies. Carrying two fields always, even when `fixed` and `recursive` leave them equal, means every strategy shares one `Chunk` shape, so nothing downstream (retrieval, generation, dedup) ever has to special-case "does this chunk type have one field or two."
+
+**Why is `structural` the default instead of `semantic`, when "semantic" sounds like the smarter choice — doesn't it *understand* the text?** It's a cost-and-payoff question, not an intelligence one. `semantic` embeds the whole document once just to decide where the boundaries should go, then embeds the resulting chunks again for real — double the embedding cost at ingest — and per its own docstring, "in published comparisons it frequently fails to beat recursive splitting by enough to justify that." `structural` gets most of the payoff semantic promises (topic-coherent chunks) for free, by using boundaries a human author already placed — headings — and adds the heading-path prefix on top, which is a bigger, cheaper recall lever than smarter boundary detection.
+
+**What happens if `structural` chunking runs on a document with no headings at all?** `_sections(doc)` falls back to `sections or [("", doc.blocks)]` — one section covering the entire document. The `header` becomes just `doc.title` (no `" > "` path to append), and everything else proceeds through `_recursive_split` exactly as normal. Nothing breaks; the document doesn't vanish or error out. You simply lose the extra recall the heading-path prefix buys — functionally, you get `recursive` chunking with the document's title stapled onto every chunk.
+
+**Why does the tokenizer choice (`cl100k_base`) matter if the embedding model isn't from OpenAI at all?** Because `ntokens`'s job here is *consistency for comparison*, not *exactness for billing*. The chunking benchmark needs every strategy measured against the same ruler so the `chunks/doc` column in the leaderboard means something — measuring `structural` with one tokenizer and `semantic` with another would make that column garbage. `cl100k_base` genuinely is the right tokenizer when a chunk is actually sent to an OpenAI embedding model near its limit; for BGE or Claude it's a stand-in, not the model's real tokenizer — a deliberate, documented approximation, not an oversight.
+
+**Why does `parent_document` need explicit deduplication at retrieval time instead of chunking just never returning duplicate parents?** Because deduplication is fundamentally a retrieval-time concern — chunking has no idea what else will end up in the same result set. Only once retrieval sees its top-k results together does it know it just pulled five different children of the identical parent section. That's why `retrieval/fusion.dedupe_by_parent` exists where it does, not inside the chunker.
+
+**Why does `recursive` add overlap *after* splitting (`_apply_overlap`), while `fixed` bakes it into the sliding window as it goes?** `fixed`'s window walks arbitrary token positions, so overlap is just a smaller stride — there's always a well-defined "next window start" to offset backward. `recursive`'s pieces are the *disjoint* result of respecting real boundaries (a paragraph break, a sentence end); there's no stride to shrink, because the cut points aren't evenly spaced. Overlap has to be stitched on afterward, by copying the tail of piece `i-1` onto the front of piece `i`.
+
+**`runbook` has two separate fallback layers before it gives up on step-splitting — why two, not one?** Because the two failure modes are genuinely different problems. Finding `< 2` steps means the runbook is written as prose rather than a numbered/bulleted list, so falling back to heading sections still keeps the document retrievable section by section. Finding nothing at all (no headings either) means the document has almost no exploitable structure, so the final fallback is a flat slice of the first 2000 characters — worse than either real option, but it keeps the document from silently vanishing out of the index.
+
+**`contextual` chunking clearly helps retrieval — why isn't it in the registry, or on by default?** Because it costs one LLM call per chunk at ingest time, and is only affordable at all via prompt caching (see the document-first prompt design above). "Does this help" and "can this corpus afford it at its size" are two different questions, and a global default can't answer the second one for every user — so it's opt-in via `settings.contextual_chunking`, wrapping whichever inner strategy you'd otherwise use.
 
 ---
 

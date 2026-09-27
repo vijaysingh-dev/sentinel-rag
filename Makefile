@@ -1,8 +1,14 @@
-.PHONY: help install doctor up down demo-up otel-demo-up demo-down demo-status corpus ingest search eval bench test lint fmt clean
+.PHONY: help install doctor up down demo-up otel-demo-up demo-down demo-status corpus ingest search eval bench test lint fmt clean capture-incident capture-incidents
 
 # The OpenTelemetry Demo — the real system the RCA agent investigates. Its compose lives under
 # app/otel-demo/; these targets drive it with the file set Sentinel needs (base services +
 # Prometheus/Jaeger + the incident-generator and health-monitor sidecars in compose.extras.yaml).
+#
+# compose.full.yaml (Kafka, accounting, fraud-detection) is layered in: without it the order
+# pipeline has no async half, the kafkaQueueProblems fault has no target, and every corpus
+# document about consumer lag describes something that isn't running. Costs ~1.1GB of memory
+# limits. Order matters — full before observability, whose collector command already expects
+# otelcol-config-full.yml ahead of its own.
 OTEL_DEMO := app/otel-demo
 # --env-file .env.override is required explicitly: compose only auto-loads a bare `.env` from
 # the project directory, never `.env.override` — the file otel-demo's own README designates as
@@ -10,6 +16,7 @@ OTEL_DEMO := app/otel-demo
 # resource-sharing settings (POSTGRES_HOST, VALKEY_ADDR, the LLM_* reuse of Sentinel's key) live.
 DEMO_COMPOSE := docker compose \
 	-f $(OTEL_DEMO)/compose.yaml \
+	-f $(OTEL_DEMO)/compose.full.yaml \
 	-f $(OTEL_DEMO)/compose.observability.yaml \
 	-f $(OTEL_DEMO)/compose.extras.yaml \
 	--env-file $(OTEL_DEMO)/.env \
@@ -60,7 +67,7 @@ demo-up:  ## Start the OpenTelemetry Demo (Astroshop) with Prometheus, Jaeger an
 	API_KEY=$$(grep '^GOOGLE_API_KEY=' .env | cut -d= -f2-) $(DEMO_COMPOSE) up -d --no-build --pull missing
 	@echo "waiting for Prometheus..."
 	@until curl -sf http://localhost:9090/-/ready >/dev/null 2>&1; do sleep 2; done
-	@echo "Astroshop up:  store http://localhost:8080  ·  Jaeger :16686  ·  Prometheus :9090  ·  flags :4000"
+	@echo "Astroshop up:  store http://localhost:8080  ·  Jaeger http://localhost:16686/jaeger/ui  ·  Prometheus :9090  ·  flags http://localhost:8080/feature"
 	@echo "sidecars:      incident-generator :8092  ·  system-monitor :8091"
 	@echo 'point Sentinel at it: add FLAGD_CONFIG_PATH=$${HOME}/.local/share/sentinel-rag/runtime/flagd/demo.flagd.json to .env'
 
@@ -97,6 +104,12 @@ eval-full:  ## Also run the LLM-judge metrics
 
 eval-agent:  ## Replay the RCA agent against recorded incident fixtures and score its trajectory
 	uv run python scripts/evaluation/02_evaluate_agent.py
+
+capture-incident:  ## Inject one live fault and record it as an agent-eval case: make capture-incident S=payment_degraded
+	uv run python scripts/corpus/capture_live_incident.py $(S)
+
+capture-incidents:  ## Same, for every incident-generator scenario in turn (~45 min; needs demo-up + chat-api)
+	uv run python scripts/corpus/capture_live_incident.py --all
 
 baseline:  ## Commit current metrics as the regression baseline
 	uv run python scripts/evaluation/01_evaluate_stages.py --golden data/golden.jsonl --write-baseline

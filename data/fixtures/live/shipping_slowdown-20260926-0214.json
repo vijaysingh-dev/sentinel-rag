@@ -1,0 +1,513 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:25c824919100b9e4::0007::97a80cec4979c8d3",
+      "title": "INC-2691: shipping elevated latency > Action items",
+      "doc_type": "incident",
+      "effective_date": "2026-09-26",
+      "score": 4.4003,
+      "text": "[inc 2691 shipping intlshippingslowdown > INC-2691: shipping elevated latency > Action items]\n1. Add a Grafana annotation and a low-urgency alert on `flagd_flag_evaluations_total` deltas, so a flag flip is visible on every dashboard. *(owner: platform-eng)*\n2. Add \"check the dependency graph before the service that paged\" as step 1 of the `checkout` runbook. *(owner: checkout)* \u2014 done, see `knowledge/runbook/checkout.md`.\n3. Confirm the `shipping` runbook's known-failure-modes section lists `intlShippingSlowdown` with this signature. *(owner: checkout)*"
+    },
+    {
+      "ref": "doc:e2f0b141410f1946::0001::808f890ea039a90e",
+      "title": "knowledge/runbook/checkout.docx",
+      "doc_type": "runbook",
+      "effective_date": "2026-09-26",
+      "score": 3.2614,
+      "text": "# checkout runbook\n\nThe synchronous order pipeline. Calls cart, currency, product-catalog, shipping, payment, then email, in order. Implemented in Go. Owned by the checkout team (PD-CHECKOUT, #astroshop-checkout).\n\n## When this fires\n\ncheckout is on the customer-facing critical path. A failure here surfaces on frontend, frontend-proxy as elevated errors or latency, often before a checkout alert fires. If you were paged for one of those and the cause is not obvious there, check checkout early.\n\n## Thresholds\n\n| Signal | Objective | Page at |\n| --- | --- | --- |\n| Availability (28d) | 99.5% | error budget 50% burned in 1h |\n| Duration p95 | < 1200 ms | > 1800 ms for 5m |\n| Duration p99 | < 2500 ms | > 3750 ms for 5m |\n\n## Dashboards and queries\n\nGrafana: the checkout row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:\n\npromql\n\n# error ratio (span metrics)\n\nsum(rate(traces_span_metrics_calls_total{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[5m]))\n\n/ sum(rate(traces_span_metrics_calls_total{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))\n\n# p95 duration, ms (span metrics)\n\nhistogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"checkout\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))\n\n# rpc_server_call_duration_seconds p95\n\nhistogram_quantile(0.95, sum by (le) (rate(rpc_server_call_duration_seconds_bucket{service_name=\"checkout\"}"
+    },
+    {
+      "ref": "doc:5cea1250b8e7b517::0000::e0a4d9db047c5eb5",
+      "title": "knowledge/runbook/email.md",
+      "doc_type": "runbook",
+      "effective_date": "2026-09-26",
+      "score": 3.0777,
+      "text": "# email runbook\n\nSends the order-confirmation email. Called by checkout after the order is committed, best-effort. Implemented in Ruby. Owned by the checkout team (PD-CHECKOUT, #astroshop-checkout).\n\n## When this fires\n\n`email` is on the customer-facing critical path. A failure here surfaces on `checkout`, `frontend`, `frontend-proxy` as elevated errors or latency, often before a `email` alert fires. If you were paged for one of those and the cause is not obvious there, check `email` early.\n\n## Thresholds\n\n| Signal | Objective | Page at |\n| --- | --- | --- |\n| Availability (28d) | 99% | error budget 50% burned in 1h |\n| Duration p95 | < 1000 ms | > 1500 ms for 5m |\n\n## Dashboards and queries\n\nGrafana: the `email` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:\n\n# error ratio (span metrics)\nsum(rate(traces_span_metrics_calls_total{service_name=\"email\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[5m]))\n  / sum(rate(traces_span_metrics_calls_total{service_name=\"email\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))\n# p95 duration, ms (span metrics)\nhistogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"email\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))\n# demo_notification_confirmations_total rate\nsum(rate(demo_notification_confirmations_total{service_name=\"email\"}[5m]))\n# container_memory_usage_total_bytes\ncontainer_memory_usage_total_bytes{container_name=\"email\"}\n\nIn "
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:c20344cb5c4c",
+    "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(traces_span_metrics_duration_milliseconds_bucket{span_kind=\"SPAN_KIND_SERVER\"}[2m])))",
+    "window_minutes": 15,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "ad"
+          },
+          "first": 72.5,
+          "last": 3.74,
+          "min": 3.5,
+          "max": 125.0,
+          "direction": "falling",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "cart"
+          },
+          "first": 3.27778,
+          "last": 1.92043,
+          "min": 1.9,
+          "max": 4.7,
+          "direction": "falling",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "checkout"
+          },
+          "first": 378.0,
+          "last": 350.0,
+          "min": 192.5,
+          "max": 15000.0,
+          "direction": "flat",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "currency"
+          },
+          "first": 1.9,
+          "last": 1.9,
+          "min": 1.9,
+          "max": 1.9,
+          "direction": "flat",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "email"
+          },
+          "first": 7.45,
+          "last": 3.9,
+          "min": 3.9,
+          "max": 44.0,
+          "direction": "falling",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "flagd"
+          },
+          "first": 1.92692,
+          "last": 1.92854,
+          "min": 1.92436,
+          "max": 1.96656,
+          "direction": "flat",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "frontend"
+          },
+          "first": 235.38462,
+          "last": 190.0,
+          "min": 134.16667,
+          "max": 440.0,
+          "direction": "falling",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "frontend-proxy"
+          },
+          "first": 201.53846,
+          "last": 143.5,
+          "min": 94.25,
+          "max": 291.33333,
+          "direction": "falling",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "image-provider"
+          },
+          "first": 1.9,
+          "last": 1.9,
+          "min": 1.9,
+          "max": 1.9181,
+          "direction": "flat",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "payment"
+          },
+          "first": 1.9,
+          "last": 1.9,
+          "min": 1.9,
+          "max": 3.8,
+          "direction": "flat",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "product-catalog"
+          },
+          "first": 160.0,
+          "last": 432.0,
+          "min": 144.09091,
+          "max": 1144.44444,
+          "direction": "rising",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "quote"
+          },
+          "first": 1.9,
+          "last": 1.9,
+          "min": 1.9,
+          "max": 7.5,
+          "direction": "flat",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "recommendation"
+          },
+          "first": 145.0,
+          "last": 370.0,
+          "min": 49.75,
+          "max": 1820.0,
+          "direction": "rising",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "shipping"
+          },
+          "first": 5.52,
+          "last": 3.85556,
+          "min": 3.7,
+          "max": 44.0,
+          "direction": "falling",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        },
+        {
+          "labels": {
+            "service_name": "telemetry-docs"
+          },
+          "first": 1.9,
+          "last": 1.9,
+          "min": 1.9,
+          "max": 1.9,
+          "direction": "flat",
+          "from": "2026-09-26T02:01:17.699000+00:00",
+          "to": "2026-09-26T02:16:17.699000+00:00",
+          "points": 31
+        }
+      ],
+      "series_count": 15
+    }
+  },
+  "find_traces": {
+    "ref": "trace:114c64b4050e",
+    "service": "checkout",
+    "count": 5,
+    "traces": [
+      {
+        "trace_id": "bf1ed89cae816caa4760bcaf79b4b036",
+        "found": true,
+        "duration_ms": 608669.3,
+        "span_count": 100,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 418.8,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "44825f85dc1c81e5d42cfe0a2920311d",
+        "found": true,
+        "duration_ms": 608471.0,
+        "span_count": 160,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 237.0,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "5dda55d2bbd743c4bbf5f4652b4181c9",
+        "found": true,
+        "duration_ms": 608466.3,
+        "span_count": 70,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 279.8,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "03a91abb3dc15396de6d5ecb46830303",
+        "found": true,
+        "duration_ms": 608438.6,
+        "span_count": 100,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 257.5,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      },
+      {
+        "trace_id": "5c6cb61639f37c2ac440ad2eed2eea5e",
+        "found": true,
+        "duration_ms": 608427.3,
+        "span_count": 70,
+        "services": [
+          "cart",
+          "checkout",
+          "currency",
+          "email",
+          "flagd",
+          "frontend",
+          "frontend-proxy",
+          "load-generator",
+          "payment",
+          "product-catalog",
+          "quote",
+          "shipping"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "POST",
+          "duration_ms": 226.6,
+          "share_of_trace": 0.0
+        },
+        "error_spans": []
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span.",
+    "tenant": "default"
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "intlShippingSlowdown",
+          "current_variant": "10sec",
+          "resting_variant": "off",
+          "active": true,
+          "value": 10
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:1h",
+    "count": 9,
+    "changes": [
+      {
+        "ts": "2026-09-26T01:54:41.092110+00:00",
+        "flag": "adFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "ad is a leaf under frontend \u2014 isolated failure, should not cascade past frontend"
+      },
+      {
+        "ts": "2026-09-26T01:57:11.093298+00:00",
+        "flag": "adFailure",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "ad is a leaf under frontend \u2014 isolated failure, should not cascade past frontend"
+      },
+      {
+        "ts": "2026-09-26T02:00:04.130596+00:00",
+        "flag": "adHighCpu",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "resource exhaustion rather than a hard failure \u2014 may show as slow, not down"
+      },
+      {
+        "ts": "2026-09-26T02:03:24.131589+00:00",
+        "flag": "adHighCpu",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "resource exhaustion rather than a hard failure \u2014 may show as slow, not down"
+      },
+      {
+        "ts": "2026-09-26T02:04:41.843393+00:00",
+        "flag": "recommendationCacheFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "recommendation depends on product-catalog \u2014 watch whether the fault stays isolated"
+      },
+      {
+        "ts": "2026-09-26T02:07:11.844842+00:00",
+        "flag": "recommendationCacheFailure",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "recommendation depends on product-catalog \u2014 watch whether the fault stays isolated"
+      },
+      {
+        "ts": "2026-09-26T02:10:16.061711+00:00",
+        "flag": "productCatalogFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "product-catalog is a shared dependency of both frontend and recommendation \u2014 good multi-parent test"
+      },
+      {
+        "ts": "2026-09-26T02:12:46.062761+00:00",
+        "flag": "productCatalogFailure",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "product-catalog is a shared dependency of both frontend and recommendation \u2014 good multi-parent test"
+      },
+      {
+        "ts": "2026-09-26T02:14:03.496824+00:00",
+        "flag": "intlShippingSlowdown",
+        "event": "incident_start",
+        "variant": "10sec",
+        "note": "latency injection, not a hard failure \u2014 healthchecks may stay green while checkout gets slow"
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:5",
+    "count": 5,
+    "incidents": [
+      {
+        "ts": "2026-09-26T02:04:41.843393+00:00",
+        "scenario": "recommendation_cache_failure",
+        "flag": "recommendationCacheFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "recommendation depends on product-catalog \u2014 watch whether the fault stays isolated"
+      },
+      {
+        "ts": "2026-09-26T02:07:11.844842+00:00",
+        "scenario": "recommendation_cache_failure",
+        "flag": "recommendationCacheFailure",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "recommendation depends on product-catalog \u2014 watch whether the fault stays isolated"
+      },
+      {
+        "ts": "2026-09-26T02:10:16.061711+00:00",
+        "scenario": "product_catalog_failure",
+        "flag": "productCatalogFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "product-catalog is a shared dependency of both frontend and recommendation \u2014 good multi-parent test"
+      },
+      {
+        "ts": "2026-09-26T02:12:46.062761+00:00",
+        "scenario": "product_catalog_failure",
+        "flag": "productCatalogFailure",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "product-catalog is a shared dependency of both frontend and recommendation \u2014 good multi-parent test"
+      },
+      {
+        "ts": "2026-09-26T02:14:03.496824+00:00",
+        "scenario": "shipping_slowdown",
+        "flag": "intlShippingSlowdown",
+        "event": "incident_start",
+        "variant": "10sec",
+        "note": "latency injection, not a hard failure \u2014 healthchecks may stay green while checkout gets slow"
+      }
+    ],
+    "tenant": "default"
+  }
+}

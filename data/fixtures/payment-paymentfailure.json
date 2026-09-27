@@ -5,7 +5,7 @@
       "title": "payment runbook > Known failure modes > paymentFailure",
       "doc_type": "runbook",
       "score": 0.82,
-      "text": "paymentFailure. Effect: fault injected. Signature: payment error_rate = n%; checkout app_orders_failed_total up; no latency change. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
+      "text": "paymentFailure. Effect: fault injected. Signature: payment error_rate = n% (span status ERROR on charge); checkout error_rate up in step; no latency change. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
     },
     {
       "ref": "doc:incident-payment",

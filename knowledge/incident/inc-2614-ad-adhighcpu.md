@@ -20,7 +20,7 @@ Minimal. The ad slot on the product page rendered empty; browse and checkout wer
 - 08:43 — First alert: `frontend` error ratio crosses its page threshold. catalog and the storefront team are paged.
 - 08:45 — Responder confirms the alert on `frontend` and begins checking its own dependencies rather than `frontend` itself, since `frontend` code has not changed.
 - 08:48 — Trace inspection: a `frontend` request trace shows the error status originating in the `ad` span, not in `frontend`.
-- 08:50 — `ad` RED panels match the known signature — ad process_cpu_utilization saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
+- 08:50 — `ad` RED panels match the known signature — ad jvm_cpu_recent_utilization_ratio saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
 - 08:52 — flagd checked: `adHighCpu` is active, set at 08:41. Cause confirmed.
 - 08:53 — Flag reset to resting variant. `ad` recovers on the next flag evaluation.
 - 08:57 — `frontend` metrics back at baseline for 3 minutes. Incident closed.
@@ -49,5 +49,5 @@ The `adHighCpu` feature flag was set to its fault variant. A background thread p
 ## Detection signature
 
 ```
-ad process_cpu_utilization saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
+ad jvm_cpu_recent_utilization_ratio saturated; ad duration_p95 up; error rate flat; may not alert if only latency-gated.
 ```

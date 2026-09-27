@@ -43,7 +43,7 @@ TOOL_SCOPES: dict[str, list[Any]] = {
     "change": [current_flags, flag_changes, recent_deployments, incident_history],
 }
 
-PROMPT_VERSIONS = {"knowledge": "v5", "metrics": "v1", "tracing": "v1", "change": "v5"}
+PROMPT_VERSIONS = {"knowledge": "v6", "metrics": "v2", "tracing": "v1", "change": "v5"}
 
 FOCUS = {
     "knowledge": "documented explanations, design rationale and prior incidents matching this symptom",

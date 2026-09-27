@@ -1,9 +1,13 @@
 """Knowledge retrieval tool.
 
-This is the seam where the RCA agent meets the new multi-cloud RAG pipeline. The original Sentinel
-implementation called PGVector and CohereRerank directly; it now calls `RetrievalPipeline`, which
-means the same agent runs unchanged against pgvector, Azure AI Search or OpenSearch, with local,
-Azure or Bedrock embeddings and reranking. Nothing in the agent code knows which.
+This is the seam where the RCA agent meets the RAG pipeline. The original Sentinel implementation
+called PGVector and CohereRerank directly; it now calls `RetrievalPipeline`, so the agent runs
+unchanged whichever embedding and reranking provider is configured (local, or the openai/cohere
+escape hatches — ADR-029). Nothing in the agent code knows which.
+
+The docstring of `search_knowledge` is the tool description the model reads when deciding whether
+to search and with which `doc_type`, so every doc type in `knowledge/` has to be named there with
+what it answers — a type the model has never been told about is a type it never filters to.
 
 Two properties preserved from the original and worth keeping:
 
@@ -56,23 +60,36 @@ def _format(results: Any) -> list[dict]:
 
 @tool
 async def search_knowledge(query: str, doc_type: str | None = None) -> list[dict]:
-    """Search operational runbooks, architecture and design docs, and resolved past incidents.
+    """Search the Astroshop knowledge base: runbooks, past incidents, design decisions, and the
+    platform reference (what services exist, how they connect, ports, data stores, metric names
+    and labels, fault flags, the incident-generator and system-monitor).
 
     Search by symptom and by mechanism separately; they retrieve different documents. Cite the
     returned `ref` for any claim you base on a result.
 
     Args:
         query: Natural-language description of what you need, for example
-            'checkout errors at the payment step' or 'why is otel-collector excluded from the
-            health rollup'.
-        doc_type: Optional filter — one of 'runbook', 'incident', 'adr', 'architecture',
-            'glossary', 'oncall', 'reference'. Use 'incident' to check whether this has happened
-            before, 'adr' for a design rationale.
+            'checkout errors at the payment step', 'which services call product-catalog', or
+            'which label selects a service in container memory metrics'.
+        doc_type: Optional filter:
+            'runbook' — diagnosis and mitigation for one service, its PromQL and known faults;
+            'incident' — past post-mortems, to check whether this has happened before;
+            'platform' — the platform reference: service inventory, call order, blast radius,
+              deployment, metric names and selectors, every fault flag, health-rollup rules;
+            'adr' — why something is built the way it is;
+            'architecture', 'glossary', 'oncall', 'reference' — diagrams, terms, escalation,
+              metrics catalog.
+            Omit to search everything.
     """
     recorded = fixture_lookup("search_knowledge")
     if recorded is not None:
         TOOL_CALLS.labels("search_knowledge", "fixture").inc()
-        return recorded.get(doc_type or "any", recorded.get("default", []))
+        # A fixture records either one result list for every query, or a dict keyed by doc_type.
+        # Every fixture on disk is the first shape, and calling .get() on it raised — so each
+        # `make eval-agent` replay ran its knowledge specialist degraded.
+        if isinstance(recorded, dict):
+            return recorded.get(doc_type or "any", recorded.get("default", []))
+        return recorded
 
     try:
         results = pipeline().retrieve(
@@ -107,7 +124,7 @@ async def search_knowledge(query: str, doc_type: str | None = None) -> list[dict
     TOOL_CALLS.labels("search_knowledge", "ok").inc()
     payload = _format(results)
 
-    if results.mode != "full":
+    if results.degraded:
         # Degradation is surfaced to the model so the eventual draft can be honest about it.
         payload.append(
             {

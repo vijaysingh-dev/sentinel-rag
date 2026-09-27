@@ -20,7 +20,7 @@ Order-confirmation emails were delayed or dropped during the restarts. Orders th
 - 10:15 — First alert: `checkout` duration p95 crosses its page threshold. checkout and the checkout team are paged.
 - 10:17 — Responder confirms the alert on `checkout` and begins checking its own dependencies rather than `checkout` itself, since `checkout` code has not changed.
 - 10:20 — Trace inspection: a `checkout` request trace shows the time originating in the `email` span, not in `checkout`.
-- 10:22 — `email` RED panels match the known signature — email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort).
+- 10:22 — `email` RED panels match the known signature — email container_memory_usage_total_bytes ramps linearly toward its 100M limit; OOM restarts; checkout unaffected (call is best-effort).
 - 10:24 — flagd checked: `emailMemoryLeak` is active, set at 10:13. Cause confirmed.
 - 10:25 — Flag reset to resting variant. `email` recovers on the next flag evaluation.
 - 10:29 — `checkout` metrics back at baseline for 3 minutes. Incident closed.
@@ -48,5 +48,5 @@ The `emailMemoryLeak` feature flag was set to its fault variant. RSS climbs stea
 ## Detection signature
 
 ```
-email process_resident_memory_bytes ramps linearly; periodic restarts; checkout unaffected (call is best-effort).
+email container_memory_usage_total_bytes ramps linearly toward its 100M limit; OOM restarts; checkout unaffected (call is best-effort).
 ```

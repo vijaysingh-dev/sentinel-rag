@@ -18,13 +18,15 @@ Consumes the orders topic from Kafka and writes ledger entries. Fully asynchrono
 Grafana: the `accounting` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="accounting", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="accounting"}[5m]))
-# kafka_consumer_lag
-kafka_consumer_lag{service_name="accounting"}
-# messages_processed_total rate
-sum(rate(messages_processed_total{service_name="accounting"}[5m]))
+# error ratio (span metrics)
+sum(rate(traces_span_metrics_calls_total{service_name="accounting", span_kind="SPAN_KIND_CONSUMER", status_code="STATUS_CODE_ERROR"}[5m]))
+  / sum(rate(traces_span_metrics_calls_total{service_name="accounting", span_kind="SPAN_KIND_CONSUMER"}[5m]))
+# p95 duration, ms (span metrics)
+histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name="accounting", span_kind="SPAN_KIND_CONSUMER"}[5m])))
+# kafka_consumer_group_lag_ratio
+kafka_consumer_group_lag_ratio{group="accounting"}
+# db_client_operation_duration_seconds p95
+histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket{service_name="accounting"}[5m])))
 ```
 
 In Jaeger, filter to `service = accounting` and sort by duration for the latency case, or add `error = true` for the error case.
@@ -32,7 +34,7 @@ In Jaeger, filter to `service = accounting` and sort by duration for the latency
 ## Diagnose
 
 1. **Rule out upstream first.** `accounting` calls `kafka`. Check each one's error and latency panels for the same window. If an upstream is unhealthy, work that runbook instead — a healthy `accounting` failing every call to a sick dependency is not a `accounting` incident.
-2. Pull the RED panels for `accounting`: `kafka_consumer_lag`, `messages_processed_total`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+2. Pull the RED panels for `accounting`: `kafka_consumer_group_lag_ratio`, `db_client_operation_duration_seconds`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 3. Open a trace for a failing `accounting` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 
 ## Mitigate
@@ -47,6 +49,6 @@ If the cause is not a flag, not a bad deploy, and not an unhealthy upstream, pag
 
 ## After the incident
 
-- Confirm `kafka_consumer_lag` and the error ratio have held at baseline for 15 minutes.
+- Confirm `kafka_consumer_group_lag_ratio` and the error ratio have held at baseline for 15 minutes.
 - Note the flag, deploy or upstream cause in the incident channel before closing.
 - If this was a new failure mode, add it to the Known failure modes section of this runbook and to `scripts/corpus/services.yaml`.

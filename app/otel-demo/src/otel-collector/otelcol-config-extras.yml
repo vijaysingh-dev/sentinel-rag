@@ -31,3 +31,27 @@
 #       exporters: [otlp_http/prometheus, debug, otlp_grpc/mybackend]           # repeat upstream exporters
 #     logs:
 #       exporters: [opensearch, debug, otlp_grpc/mybackend]                     # repeat upstream exporters
+
+# --- sentinel-rag additions -------------------------------------------------------------------
+# valkey-cart is disabled by compose.extras.yaml; cart's Redis is the shared, always-on `redis`
+# container on the `infra` network (the collector joins it there). Without this override the
+# redis receiver keeps dialling a host that no longer exists and no redis_* metrics ever arrive.
+# The shared redis has no ACL users, so the upstream `valkey` username is blanked. The receiver
+# reads INFO, which is server-wide, so which logical DB cart uses (1) doesn't matter here.
+#
+# The OTLP receivers bind to 0.0.0.0 rather than upstream's ${OTEL_COLLECTOR_HOST}. Upstream's
+# form means "the address `otel-collector` resolves to inside the collector" — fine with one
+# network, but compose.extras.yaml also puts the collector on `infra`, and the name then resolves
+# to the infra address only. Every service not itself on `infra` got connection-refused and
+# silently lost all traces and OTLP metrics; only cart, product-catalog and accounting (the
+# services that share `infra`) got through. Merged over upstream, so the HTTP CORS block survives.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:${env:OTEL_COLLECTOR_PORT_GRPC}
+      http:
+        endpoint: 0.0.0.0:${env:OTEL_COLLECTOR_PORT_HTTP}
+  redis:
+    endpoint: "redis:6379"
+    username: ""

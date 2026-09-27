@@ -12,7 +12,7 @@ from functools import cached_property
 from typing import Any
 
 from sentinel.core.config import settings
-from sentinel.generation.base import BaseLLM
+from sentinel.generation.base import CHEAP_MAX_TOKENS, BaseLLM
 
 
 class AnthropicLLM(BaseLLM):
@@ -40,7 +40,7 @@ class AnthropicLLM(BaseLLM):
 
     @cached_property
     def cheap(self) -> Any:
-        return self._build(settings.anthropic_cheap_model, max_tokens=800)
+        return self._build(settings.anthropic_cheap_model, max_tokens=CHEAP_MAX_TOKENS)
 
     def describe(self) -> dict[str, Any]:
         return {"provider": self.name, "chat": settings.anthropic_chat_model, "cheap": settings.anthropic_cheap_model}

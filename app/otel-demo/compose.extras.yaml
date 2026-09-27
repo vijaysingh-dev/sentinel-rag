@@ -140,6 +140,14 @@ services:
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
 
+  # accounting (compose.full.yaml) writes orders into astronomy_db, so it needs the same `infra`
+  # route to the shared postgres that product-catalog has; POSTGRES_HOST=postgres comes from
+  # .env.override and feeds its DB_CONNECTION_STRING.
+  accounting:
+    networks:
+      - default
+      - infra
+
   flagd:
     volumes:
       - /home/vijay/.local/share/sentinel-rag/runtime/flagd:/etc/flagd
@@ -149,6 +157,13 @@ services:
       - /home/vijay/.local/share/sentinel-rag/runtime/flagd:/app/data
 
   jaeger:
+    # Upstream publishes the query port to a random host port, which leaves Sentinel's trace tools
+    # (settings.jaeger_url) with nothing stable to point at. Going through frontend-proxy's
+    # /jaeger/ route would work too, but then every query Sentinel makes becomes an Envoy span in
+    # the very traces it is investigating. Compose appends this to upstream's ports list.
+    # Jaeger's base_path (/jaeger/ui) still applies: the API is at :16686/jaeger/ui/api/.
+    ports:
+      - "16686:16686"
     volumes:
       - /home/vijay/.local/share/sentinel-rag/runtime/jaeger/config.yml:/etc/jaeger/config.yml
       - /home/vijay/.local/share/sentinel-rag/runtime/jaeger/ui-config.json:/etc/jaeger/ui-config.json

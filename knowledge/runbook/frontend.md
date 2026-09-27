@@ -19,13 +19,17 @@ Serves the web storefront and the JSON API the browser calls. Fans out to every 
 Grafana: the `frontend` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:
 
 ```promql
-# error ratio
-sum(rate(rpc_server_duration_milliseconds_count{service_name="frontend", rpc_grpc_status_code!="0"}[5m]))
-  / sum(rate(rpc_server_duration_milliseconds_count{service_name="frontend"}[5m]))
+# error ratio (span metrics)
+sum(rate(traces_span_metrics_calls_total{service_name="frontend", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+  / sum(rate(traces_span_metrics_calls_total{service_name="frontend", span_kind="SPAN_KIND_SERVER"}[5m]))
+# p95 duration, ms (span metrics)
+histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name="frontend", span_kind="SPAN_KIND_SERVER"}[5m])))
 # http_server_request_duration_seconds p95
 histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name="frontend"}[5m])))
-# http_server_active_requests
-http_server_active_requests{service_name="frontend"}
+# nodejs_eventloop_delay_p99_seconds
+nodejs_eventloop_delay_p99_seconds{service_name="frontend"}
+# v8js_memory_heap_used_bytes
+v8js_memory_heap_used_bytes{service_name="frontend"}
 ```
 
 In Jaeger, filter to `service = frontend` and sort by duration for the latency case, or add `error = true` for the error case.
@@ -33,7 +37,7 @@ In Jaeger, filter to `service = frontend` and sort by duration for the latency c
 ## Diagnose
 
 1. **Rule out upstream first.** `frontend` calls `ad`, `cart`, `checkout`, `currency`, `product-catalog`, `quote`, `recommendation`, `shipping`, `image-provider`. Check each one's error and latency panels for the same window. If an upstream is unhealthy, work that runbook instead — a healthy `frontend` failing every call to a sick dependency is not a `frontend` incident.
-2. Pull the RED panels for `frontend`: `http_server_request_duration_seconds`, `http_server_active_requests`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
+2. Pull the RED panels for `frontend`: `http_server_request_duration_seconds`, `nodejs_eventloop_delay_p99_seconds`, `v8js_memory_heap_used_bytes`. Note whether this is an **error** spike (count of failed requests up, latency flat) or a **latency** spike (duration up, error count flat). They have different causes and the next step depends on which.
 3. Open a trace for a failing `frontend` request in Jaeger. The span that carries the error status, or the span that dominates wall-clock time, points at the subsystem.
 4. Check whether a fault flag is active. `frontend` has injectable faults; a flag flip is by far the most common cause in this environment. Query flagd for the flags below and compare the timestamp to when the alert started.
 

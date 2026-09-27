@@ -5,7 +5,7 @@
       "title": "kafka runbook > Known failure modes > kafkaQueueProblems",
       "doc_type": "runbook",
       "score": 0.82,
-      "text": "kafkaQueueProblems. Effect: fault injected. Signature: kafka_consumergroup_lag climbing for accounting and fraud-detection; checkout produce latency up; storefront unaffected. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
+      "text": "kafkaQueueProblems. Effect: fault injected. Signature: kafka_consumer_group_lag_ratio climbing for the accounting and fraud-detection groups; checkout produce latency up; storefront unaffected. Response: confirm the flag is set by querying flagd, then reset it. Recovery is immediate on the next flag evaluation."
     },
     {
       "ref": "doc:incident-kafka",

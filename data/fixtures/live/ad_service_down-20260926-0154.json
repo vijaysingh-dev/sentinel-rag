@@ -1,0 +1,424 @@
+{
+  "search_knowledge": [
+    {
+      "ref": "doc:583e49e0d33b2376::0001::6f11663db8ec550f",
+      "title": "knowledge/runbook/frontend.md",
+      "doc_type": "runbook",
+      "effective_date": "2026-09-26",
+      "score": 5.861,
+      "text": "# frontend runbook\n\nServes the web storefront and the JSON API the browser calls. Fans out to every product path. Implemented in TypeScript / Next.js. Owned by the storefront team (PD-STOREFRONT, #astroshop-storefront).\n\n## When this fires\n\n`frontend` is on the customer-facing critical path. A failure here surfaces on `frontend-proxy` as elevated errors or latency, often before a `frontend` alert fires. If you were paged for one of those and the cause is not obvious there, check `frontend` early.\n\n## Thresholds\n\n| Signal | Objective | Page at |\n| --- | --- | --- |\n| Availability (28d) | 99.9% | error budget 50% burned in 1h |\n| Duration p95 | < 800 ms | > 1200 ms for 5m |\n| Duration p99 | < 1500 ms | > 2250 ms for 5m |\n\n## Dashboards and queries\n\nGrafana: the `frontend` row on the Astroshop service dashboard. The queries behind that row, for pasting straight into Prometheus:\n\n# error ratio (span metrics)\nsum(rate(traces_span_metrics_calls_total{service_name=\"frontend\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[5m]))\n  / sum(rate(traces_span_metrics_calls_total{service_name=\"frontend\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))\n# p95 duration, ms (span metrics)\nhistogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"frontend\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))\n# http_server_request_duration_seconds p95\nhistogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"frontend\""
+    }
+  ],
+  "query_prometheus": {
+    "ref": "promql:f6f19c05ece7",
+    "expr": "sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[2m])) / sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[2m]))",
+    "window_minutes": 15,
+    "result": {
+      "series": [
+        {
+          "labels": {
+            "service_name": "ad"
+          },
+          "first": 0.25307,
+          "last": 0.25307,
+          "min": 0.25307,
+          "max": 0.25307,
+          "direction": "flat",
+          "from": "2026-09-26T01:57:02.297000+00:00",
+          "to": "2026-09-26T01:57:02.297000+00:00",
+          "points": 1
+        },
+        {
+          "labels": {
+            "service_name": "cart"
+          },
+          "first": 0.00742,
+          "last": 0.01333,
+          "min": 0.0,
+          "max": 0.01333,
+          "direction": "rising",
+          "from": "2026-09-26T01:54:02.297000+00:00",
+          "to": "2026-09-26T01:57:02.297000+00:00",
+          "points": 7
+        },
+        {
+          "labels": {
+            "service_name": "checkout"
+          },
+          "first": 0.0,
+          "last": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "direction": "flat",
+          "from": "2026-09-26T01:53:02.297000+00:00",
+          "to": "2026-09-26T01:57:02.297000+00:00",
+          "points": 9
+        },
+        {
+          "labels": {
+            "service_name": "flagd"
+          },
+          "first": 0.00284,
+          "last": 0.00223,
+          "min": 0.0,
+          "max": 0.00284,
+          "direction": "falling",
+          "from": "2026-09-26T01:53:02.297000+00:00",
+          "to": "2026-09-26T01:57:02.297000+00:00",
+          "points": 9
+        },
+        {
+          "labels": {
+            "service_name": "frontend"
+          },
+          "first": 0.0,
+          "last": 0.0082,
+          "min": 0.0,
+          "max": 0.0082,
+          "direction": "rising",
+          "from": "2026-09-26T01:53:02.297000+00:00",
+          "to": "2026-09-26T01:57:02.297000+00:00",
+          "points": 9
+        },
+        {
+          "labels": {
+            "service_name": "frontend-proxy"
+          },
+          "first": 0.00556,
+          "last": 0.00439,
+          "min": 0.0,
+          "max": 0.00556,
+          "direction": "falling",
+          "from": "2026-09-26T01:53:02.297000+00:00",
+          "to": "2026-09-26T01:57:02.297000+00:00",
+          "points": 9
+        },
+        {
+          "labels": {
+            "service_name": "payment"
+          },
+          "first": 0.0,
+          "last": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "direction": "flat",
+          "from": "2026-09-26T01:53:02.297000+00:00",
+          "to": "2026-09-26T01:57:02.297000+00:00",
+          "points": 9
+        }
+      ],
+      "series_count": 7
+    }
+  },
+  "find_traces": {
+    "ref": "trace:edafb17912a3",
+    "service": "frontend",
+    "count": 4,
+    "traces": [
+      {
+        "trace_id": "076b754cf1107dc3892aecc87fd92d4b",
+        "found": true,
+        "duration_ms": 194.0,
+        "span_count": 9,
+        "services": [
+          "ad",
+          "frontend",
+          "frontend-proxy",
+          "frontend-web"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 171.7,
+          "share_of_trace": 0.89
+        },
+        "error_spans": [
+          {
+            "service": "frontend-web",
+            "operation": "GET",
+            "message": null
+          },
+          {
+            "service": "frontend-proxy",
+            "operation": "router frontend egress",
+            "message": null
+          },
+          {
+            "service": "frontend-proxy",
+            "operation": "GET",
+            "message": null
+          },
+          {
+            "service": "ad",
+            "operation": "oteldemo.AdService/GetAds",
+            "message": null
+          },
+          {
+            "service": "frontend",
+            "operation": "GET /api/data",
+            "message": null
+          }
+        ]
+      },
+      {
+        "trace_id": "d7bf73bd994614030bedcd8426b5c84f",
+        "found": true,
+        "duration_ms": 36.0,
+        "span_count": 9,
+        "services": [
+          "ad",
+          "frontend",
+          "frontend-proxy",
+          "frontend-web"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 12.8,
+          "share_of_trace": 0.36
+        },
+        "error_spans": [
+          {
+            "service": "frontend-proxy",
+            "operation": "router frontend egress",
+            "message": null
+          },
+          {
+            "service": "frontend-proxy",
+            "operation": "GET",
+            "message": null
+          },
+          {
+            "service": "frontend-web",
+            "operation": "GET",
+            "message": null
+          },
+          {
+            "service": "ad",
+            "operation": "oteldemo.AdService/GetAds",
+            "message": null
+          },
+          {
+            "service": "frontend",
+            "operation": "GET /api/data",
+            "message": null
+          }
+        ]
+      },
+      {
+        "trace_id": "d961e8772d3364d933e05910f2574eca",
+        "found": true,
+        "duration_ms": 23.6,
+        "span_count": 12,
+        "services": [
+          "ad",
+          "frontend",
+          "frontend-proxy",
+          "load-generator"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 15.7,
+          "share_of_trace": 0.66
+        },
+        "error_spans": [
+          {
+            "service": "frontend-proxy",
+            "operation": "router frontend egress",
+            "message": null
+          },
+          {
+            "service": "frontend-proxy",
+            "operation": "GET",
+            "message": null
+          },
+          {
+            "service": "ad",
+            "operation": "oteldemo.AdService/GetAds",
+            "message": null
+          },
+          {
+            "service": "frontend",
+            "operation": "executing api route (pages) /api/data",
+            "message": null
+          },
+          {
+            "service": "frontend",
+            "operation": "GET /api/data",
+            "message": null
+          }
+        ]
+      },
+      {
+        "trace_id": "451d8393432e5b273c0b8ded5bdc583c",
+        "found": true,
+        "duration_ms": 19.0,
+        "span_count": 9,
+        "services": [
+          "ad",
+          "frontend",
+          "frontend-proxy",
+          "frontend-web"
+        ],
+        "slowest_span": {
+          "service": "frontend-proxy",
+          "operation": "GET",
+          "duration_ms": 8.0,
+          "share_of_trace": 0.42
+        },
+        "error_spans": [
+          {
+            "service": "frontend-proxy",
+            "operation": "router frontend egress",
+            "message": null
+          },
+          {
+            "service": "frontend-proxy",
+            "operation": "GET",
+            "message": null
+          },
+          {
+            "service": "frontend-web",
+            "operation": "GET",
+            "message": null
+          },
+          {
+            "service": "ad",
+            "operation": "oteldemo.AdService/GetAds",
+            "message": null
+          },
+          {
+            "service": "frontend",
+            "operation": "GET /api/data",
+            "message": null
+          }
+        ]
+      }
+    ],
+    "instruction": "Cite trace:<id> for any claim about a specific span.",
+    "tenant": "default"
+  },
+  "current_flags": {
+    "ref": "flags:current",
+    "flags": {
+      "flags": [
+        {
+          "flag": "adFailure",
+          "current_variant": "on",
+          "resting_variant": "off",
+          "active": true,
+          "value": true
+        }
+      ],
+      "any_active": true
+    }
+  },
+  "flag_changes": {
+    "ref": "flagchg:1h",
+    "count": 7,
+    "changes": [
+      {
+        "ts": "2026-09-26T01:33:43.614783+00:00",
+        "flag": "paymentFailure",
+        "event": "incident_start",
+        "variant": "50%",
+        "note": "checkout depends on payment (service_healthy) \u2014 expect checkout and frontend to degrade"
+      },
+      {
+        "ts": "2026-09-26T01:36:43.617858+00:00",
+        "flag": "paymentFailure",
+        "event": "incident_end",
+        "variant": "50%",
+        "note": "checkout depends on payment (service_healthy) \u2014 expect checkout and frontend to degrade"
+      },
+      {
+        "ts": "2026-09-26T01:37:55.688299+00:00",
+        "flag": "paymentUnreachable",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "harder failure than payment_degraded \u2014 payment is fully unreachable, not just flaky"
+      },
+      {
+        "ts": "2026-09-26T01:39:55.689101+00:00",
+        "flag": "paymentUnreachable",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "harder failure than payment_degraded \u2014 payment is fully unreachable, not just flaky"
+      },
+      {
+        "ts": "2026-09-26T01:40:55.168720+00:00",
+        "flag": "cartFailure",
+        "event": "incident_start",
+        "variant": "100%",
+        "note": "cart has no container healthcheck (see tree.yaml no_healthcheck) \u2014 rollup relies on process liveness only"
+      },
+      {
+        "ts": "2026-09-26T01:53:33.508631+00:00",
+        "flag": "cartFailure",
+        "event": "incident_end",
+        "variant": "100%",
+        "note": "cart has no container healthcheck (see tree.yaml no_healthcheck) \u2014 rollup relies on process liveness only"
+      },
+      {
+        "ts": "2026-09-26T01:54:41.092110+00:00",
+        "flag": "adFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "ad is a leaf under frontend \u2014 isolated failure, should not cascade past frontend"
+      }
+    ]
+  },
+  "recent_deployments": {
+    "ref": "deploy:all:24h",
+    "count": 0,
+    "events": []
+  },
+  "incident_history": {
+    "ref": "inclog:5",
+    "count": 5,
+    "incidents": [
+      {
+        "ts": "2026-09-26T01:37:55.688299+00:00",
+        "scenario": "payment_outage",
+        "flag": "paymentUnreachable",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "harder failure than payment_degraded \u2014 payment is fully unreachable, not just flaky"
+      },
+      {
+        "ts": "2026-09-26T01:39:55.689101+00:00",
+        "scenario": "payment_outage",
+        "flag": "paymentUnreachable",
+        "event": "incident_end",
+        "variant": "on",
+        "note": "harder failure than payment_degraded \u2014 payment is fully unreachable, not just flaky"
+      },
+      {
+        "ts": "2026-09-26T01:40:55.168720+00:00",
+        "scenario": "cart_outage",
+        "flag": "cartFailure",
+        "event": "incident_start",
+        "variant": "100%",
+        "note": "cart has no container healthcheck (see tree.yaml no_healthcheck) \u2014 rollup relies on process liveness only"
+      },
+      {
+        "ts": "2026-09-26T01:53:33.508631+00:00",
+        "scenario": "cart_outage",
+        "flag": "cartFailure",
+        "event": "incident_end",
+        "variant": "100%",
+        "note": "cart has no container healthcheck (see tree.yaml no_healthcheck) \u2014 rollup relies on process liveness only"
+      },
+      {
+        "ts": "2026-09-26T01:54:41.092110+00:00",
+        "scenario": "ad_service_down",
+        "flag": "adFailure",
+        "event": "incident_start",
+        "variant": "on",
+        "note": "ad is a leaf under frontend \u2014 isolated failure, should not cascade past frontend"
+      }
+    ],
+    "tenant": "default"
+  }
+}

@@ -176,7 +176,7 @@ def _runbook_docx_truth(p: Platform, service: str) -> dict:
         "headings": headings,
         "tables": [thresholds],
         "blocks": headings,
-        "must_contain": [service, svc.team, error_ratio(service).split("{")[0].strip()],
+        "must_contain": [service, svc.team, (error_ratio(service) or svc.key_metrics[0]).split("{")[0].strip()],
     }
 
 

@@ -44,16 +44,18 @@ app/otel-demo/    vendored copy of the OpenTelemetry Demo, the target system Sen
 make install          # local extras only, no cloud account needed
 make doctor           # which providers are actually usable here
 make up               # langfuse (postgres/redis are the always-on infra layer, see below)
-make demo-up          # the OpenTelemetry Demo (Astroshop) + Prometheus/Jaeger + incident sidecars
+make demo-up          # the OpenTelemetry Demo (Astroshop) incl. Kafka + Prometheus/Jaeger + incident sidecars
 make otel-demo-up     # make up + make demo-up, in order, with the astronomy_db seed applied
 make corpus           # (re)generate ./knowledge, ground truth, golden set and agent fixtures
 make ingest           # index ./knowledge
 make test             # full suite, no infrastructure required
 make eval             # deterministic retrieval evaluation + CI gate
 make eval-agent       # replay the RCA agent against recorded incident fixtures (needs an LLM)
+make capture-incident S=<scenario>  # inject a live fault, record it as an agent-eval case (needs demo-up + chat-api)
 make bench-parsers    # parser bake-off
-make chat-server      # RCA graph over the LangGraph protocol on :2024, for web/
-make chat-ui          # the Agent Chat UI (web/), talks to chat-server
+make chat-api         # Sentinel's chat backend (routing, RAG, RCA) on :8093 — what web/ talks to
+make chat-server      # RCA graph over the LangGraph protocol on :2024 — Studio debugging only
+make chat-ui          # the Agent Chat UI (web/) on :3000, talks to chat-api
 ```
 
 Run `make doctor` first when something is unexpectedly failing. Most "broken" states are a missing extra or an absent credential, and it reports both in one line.
@@ -192,10 +194,10 @@ If the change is an improvement worth keeping, run `make baseline` and commit `b
 Deliberate, not oversights — good places to pick up work:
 
 - `rca/clients.py` calls the OpenTelemetry Demo's observability stack (Prometheus, Jaeger, flagd, the incident-generator) — see ADR-027. Endpoints come from `settings` (`prometheus_url`, `jaeger_url`, `flagd_config_path`, `incident_log_url`); `make demo-up` starts the stack and prints the `FLAGD_CONFIG_PATH` to add to `.env`. `ITSMClient.attach_rca` (the one write) is still a stub.
-- The knowledge corpus in `knowledge/` is **generated** by `scripts/corpus/` (`make corpus`) from `scripts/corpus/services.yaml`, a curated model of the otel-demo platform. ~49 documents across MD/PDF/DOCX/PPTX/XLSX. Edit the YAML and regenerate to reshape it.
-- `data/golden.jsonl` is a hand-authored 46-example seed set (`scripts/corpus/gen_golden.py`, balanced against `evaluation/golden.TARGET_MIX`). Grow it from real failures: `evaluation/golden.generate_from_chunks` proposes candidates and `scripts/corpus/_incident_truth.jsonl` gives correct-by-construction RCA-trajectory seeds, but synthetic questions are systematically easier than real ones — edit, don't just generate.
+- The knowledge corpus in `knowledge/` is **generated** by `scripts/corpus/` (`make corpus`) from `scripts/corpus/services.yaml`, a curated model of the otel-demo platform. ~66 documents across MD/PDF/DOCX/PPTX/XLSX, including `knowledge/platform/` (`gen_platform.py`): the reference for what the platform *is* — services, ports, compose layout, observability, failure modes, the two sidecars. `services.yaml`'s `key_metrics` and `deployment:` sections are checked against the live stack, not upstream docs; re-check them (Prometheus `/api/v1/label/__name__/values`) when the demo is re-vendored. Edit the YAML and regenerate to reshape it.
+- `data/golden.jsonl` is a hand-authored 75-example seed set (`scripts/corpus/gen_golden.py`, balanced against `evaluation/golden.TARGET_MIX`). Grow it from real failures: `evaluation/golden.generate_from_chunks` proposes candidates and `scripts/corpus/_incident_truth.jsonl` gives correct-by-construction RCA-trajectory seeds, but synthetic questions are systematically easier than real ones — edit, don't just generate.
 - `data/ground_truth/` is populated for the benchmark-critical documents by `scripts/corpus/gen_ground_truth.py`. The scanned card's truth is hand-transcribed; the rest is derived from the same model that writes the documents.
-- `data/agent_cases.jsonl` + `data/fixtures/` are generated (`scripts/corpus/gen_agent_cases.py`): one trajectory-eval case per fault scenario, with recorded tool output consistent with the incident ground truth, so `make eval-agent` replays a full investigation with no Prometheus/Jaeger running. Capture interesting *live* failures and add them here as new cases.
+- `data/agent_cases.jsonl` + `data/fixtures/` are generated (`scripts/corpus/gen_agent_cases.py`): one trajectory-eval case per fault scenario, with recorded tool output consistent with the incident ground truth, so `make eval-agent` replays a full investigation with no Prometheus/Jaeger running. Live cases come from `make capture-incident` (`scripts/corpus/capture_live_incident.py`): real tool output recorded mid-incident into `data/fixtures/live/`, cases in `data/agent_cases_live.jsonl`, folded into `agent_cases.jsonl` on every `make corpus`. Check a live case's `meta.evidence` before trusting it — a fault that never showed in the data tests nothing.
 
 ## When numbers appear in documentation
 
